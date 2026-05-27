@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+
+# Environment files — DO NOT COMMIT
+.env
+.env.local
+.env*.local
+backend/.env
+frontend/.env.local
+frontend/.env*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# TypeScript build cache
+*.tsbuildinfo

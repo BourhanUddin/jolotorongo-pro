@@ -1,0 +1,19 @@
+{
+  "name": "jolotorongo",
+  "version": "2.0.0",
+  "description": "জলতরঙ্গ — Tanguar Haor Houseboat Management SaaS",
+  "private": true,
+  "scripts": {
+    "install:all":    "npm install --prefix backend && npm install --prefix frontend",
+    "seed":           "cd backend && node utils/seed.js",
+    "dev:backend":    "cd backend && npm run dev",
+    "dev:frontend":   "cd frontend && npm run dev",
+    "dev":            "concurrently -n \"BACKEND,FRONTEND\" -c \"cyan,magenta\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build":          "cd frontend && npm run build",
+    "start:backend":  "cd backend && node server.js",
+    "start:frontend": "cd frontend && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

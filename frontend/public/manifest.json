@@ -1,0 +1,42 @@
+{
+  "name": "জলতরঙ্গ — Jolotorongo",
+  "short_name": "জলতরঙ্গ",
+  "description": "Tanguar Haor Houseboat Management System",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0ea5e9",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "বুকিং দেখুন",
+      "short_name": "বুকিং",
+      "description": "সব বুকিং দেখুন",
+      "url": "/bookings",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "নতুন হোল্ড",
+      "short_name": "হোল্ড",
+      "description": "রুম হোল্ড করুন",
+      "url": "/bookings/new",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
