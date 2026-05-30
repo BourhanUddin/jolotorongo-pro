@@ -4,9 +4,15 @@ const Houseboat = require("../models/Houseboat");
 const { AppError, catchAsync } = require("../utils/appError");
 const { addDays, startOfDay } = require("../utils/bookingSlot");
 
+const getManagedHouseboat = async (user) => {
+  if (user.role === "boat_owner") return Houseboat.findOne({ ownerId: user._id });
+  if (user.role === "manager" && user.joinedHouseboatId) return Houseboat.findById(user.joinedHouseboatId);
+  return null;
+};
+
 // GET /api/expenses
 const getExpenses = catchAsync(async (req, res, next) => {
-  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
   const { from, to, category, page = 1, limit = 20 } = req.query;
@@ -43,7 +49,7 @@ const getExpenses = catchAsync(async (req, res, next) => {
 
 // POST /api/expenses
 const createExpense = catchAsync(async (req, res, next) => {
-  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
   const expense = await Expense.create({
@@ -72,7 +78,7 @@ const deleteExpense = catchAsync(async (req, res, next) => {
 
 // GET /api/expenses/report?from=&to=
 const getFinanceReport = catchAsync(async (req, res, next) => {
-  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
   const { from, to } = req.query;

@@ -1,5 +1,5 @@
 // ─── User & Auth ─────────────────────────────────────────────
-export type Role = 'super_admin' | 'boat_owner' | 'agent';
+export type Role = 'super_admin' | 'boat_owner' | 'manager' | 'agent';
 export type UserStatus = 'unverified' | 'pending' | 'active' | 'suspended';
 
 export interface Subscription {

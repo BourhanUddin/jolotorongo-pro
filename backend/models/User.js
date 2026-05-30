@@ -11,7 +11,7 @@ const userSchema = new mongoose.Schema(
     // ─── Role ───────────────────────────────────────────────
     role: {
       type: String,
-      enum: ["super_admin", "boat_owner", "agent"],
+      enum: ["super_admin", "boat_owner", "manager", "agent"],
       default: "agent",
     },
 
@@ -83,6 +83,7 @@ userSchema.methods.comparePassword = async function (candidate) {
 userSchema.pre("validate", function (next) {
   if (this.isNew) {
     if (this.role === "boat_owner") this.status = "pending";
+    else if (this.role === "manager") this.status = "active";
     else if (this.role === "agent") this.status = "unverified";
     else if (this.role === "super_admin") this.status = "active";
   }

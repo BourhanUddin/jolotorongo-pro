@@ -3,9 +3,12 @@ const Houseboat = require("../models/Houseboat");
 const { AppError, catchAsync } = require("../utils/appError");
 const { getTwoDaySlot, activeOverlapFilter } = require("../utils/bookingSlot");
 
-// Helper: get houseboat for the logged-in owner
-const getOwnerHouseboat = async (ownerId) =>
-  Houseboat.findOne({ ownerId });
+// Helper: get houseboat for the logged-in owner/manager
+const getManagedHouseboat = async (user) => {
+  if (user.role === "boat_owner") return Houseboat.findOne({ ownerId: user._id });
+  if (user.role === "manager" && user.joinedHouseboatId) return Houseboat.findById(user.joinedHouseboatId);
+  return null;
+};
 
 const normalizeArray = (value) => {
   if (!value) return [];
@@ -24,7 +27,7 @@ const normalizeArray = (value) => {
 
 // GET /api/rooms — list rooms of the owner's houseboat
 const getRooms = catchAsync(async (req, res, next) => {
-  const houseboat = await getOwnerHouseboat(req.user._id);
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
   const rooms = await Room.find({ houseboatId: houseboat._id }).sort("roomNumber");
@@ -40,7 +43,7 @@ const getRoom = catchAsync(async (req, res, next) => {
 
 // POST /api/rooms
 const createRoom = catchAsync(async (req, res, next) => {
-  const houseboat = await getOwnerHouseboat(req.user._id);
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
   const imageUrls = [

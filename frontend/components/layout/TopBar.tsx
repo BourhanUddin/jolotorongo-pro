@@ -2,7 +2,7 @@
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery } from '@tanstack/react-query';
 import { authApi } from '@/lib/api';
-import { Bell, ChevronDown, User } from 'lucide-react';
+import { Bell, ChevronDown, Menu, User } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Notification } from '@/types';
@@ -22,9 +22,52 @@ export default function TopBar() {
   const notifications: Notification[] = notifData?.data?.data?.notifications || [];
   const unread = notifications.filter(n => !n.isRead).length;
 
+  if (user?.role === 'super_admin') {
+    return (
+      <header className="sticky top-0 z-40 border-b border-[#eee7f4] bg-[#fbf5ff]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
+          <button onClick={() => router.push('/dashboard')} className="flex min-h-0 items-center gap-4 text-[#32157c]">
+            <Menu size={21} />
+            <span className="text-base font-medium">HaorSaaS Admin</span>
+          </button>
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="relative flex h-9 w-9 min-h-0 items-center justify-center overflow-hidden rounded-full border-2 border-[#32157c] bg-slate-900 text-xs font-bold text-white"
+          >
+            {user?.name?.[0]?.toUpperCase() || 'A'}
+          </button>
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-4 top-12 z-20 w-52 overflow-hidden rounded-xl border border-[#eee7f4] bg-white shadow-xl">
+                <div className="border-b border-slate-100 p-3">
+                  <p className="truncate text-sm font-bold text-slate-800">{user?.name}</p>
+                  <p className="truncate text-xs text-slate-500">{user?.email}</p>
+                </div>
+                <button
+                  onClick={() => { setShowMenu(false); router.push('/admin/users/new'); }}
+                  className="flex min-h-0 w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-[#fbf5ff]"
+                >
+                  <User size={14} /> Create User
+                </button>
+                <button
+                  onClick={() => { logout(); router.replace('/login'); }}
+                  className="flex min-h-0 w-full items-center gap-2 border-t border-slate-100 px-4 py-2.5 text-left text-sm text-red-500 hover:bg-red-50"
+                >
+                  Logout
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </header>
+    );
+  }
+
   const roleLabel: Record<string, string> = {
     super_admin: '🛡️ সুপার অ্যাডমিন',
     boat_owner:  '🛥️ বোট ওনার',
+    manager:     '🧭 ম্যানেজার',
     agent:       '🤝 এজেন্ট',
   };
 

@@ -51,6 +51,7 @@ export default function ProfilePage() {
   const roleLabel: Record<string, string> = {
     super_admin: '🛡️ সুপার অ্যাডমিন',
     boat_owner: '🛥️ বোট ওনার',
+    manager: '🧭 ম্যানেজার',
     agent: '🤝 এজেন্ট',
   };
 

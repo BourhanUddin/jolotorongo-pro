@@ -15,6 +15,13 @@ const assertRoomBelongsToHouseboat = async (roomId, houseboatId, next) => {
   return room;
 };
 
+const getManagedHouseboat = async (user) => {
+  if (user.role === "boat_owner") return Houseboat.findOne({ ownerId: user._id });
+  if (user.role === "manager" && user.joinedHouseboatId) return Houseboat.findById(user.joinedHouseboatId);
+  if (user.role === "agent") return Houseboat.findById(user.joinedHouseboatId);
+  return null;
+};
+
 const findOverlappingBooking = ({ roomId, checkIn, checkOut, excludeBookingId }) =>
   Booking.findOne(activeOverlapFilter({ roomId, checkIn, checkOut, excludeBookingId }))
     .select("status expiresAt checkIn checkOut customerName");
@@ -112,6 +119,84 @@ const placeHold = catchAsync(async (req, res, next) => {
 // BOAT OWNER — Confirm / Cancel / Complete
 // ──────────────────────────────────────────────────────────────
 
+// POST /api/bookings/direct
+const createDirectBooking = catchAsync(async (req, res, next) => {
+  const {
+    roomId, customerName, customerPhone, customerAddress,
+    checkIn, checkOut, guestCount, advancePaid, paymentMethod, note,
+  } = req.body;
+
+  const houseboat = await getManagedHouseboat(req.user);
+  if (!houseboat || !houseboat.isOperational) {
+    return next(new AppError("হাউসবোট এখন সক্রিয় নয়।", 403));
+  }
+
+  const room = await assertRoomBelongsToHouseboat(roomId, houseboat._id, next);
+  if (!room) return;
+  if (!room.isActive || room.status === "maintenance") {
+    return next(new AppError("রুমটি এখন বুকিংয়ের জন্য সক্রিয় নয়।", 400));
+  }
+
+  const slot = getTwoDaySlot({ checkIn, checkOut });
+  if (!slot) return next(new AppError("চেক-ইন তারিখ দিন।", 400));
+  if (slot.error) return next(new AppError(slot.error, 400));
+
+  const overlapping = await findOverlappingBooking({
+    roomId,
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+  });
+  if (overlapping) {
+    return next(new AppError("এই ২ দিন ১ রাত স্লটে রুমটি উপলব্ধ নয়।", 409));
+  }
+
+  const numGuests = guestCount || 1;
+  const extraCharge = Math.max(0, numGuests - room.maxCapacity) * room.extraPersonPrice;
+  const basePrice = room.basePrice;
+  const totalPrice = basePrice + extraCharge;
+
+  const booking = await Booking.create({
+    houseboatId: houseboat._id,
+    roomId,
+    agentId: req.user._id,
+    approvedById: req.user._id,
+    customerName,
+    customerPhone,
+    customerAddress: customerAddress || "",
+    guestCount: numGuests,
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+    nights: 1,
+    basePrice,
+    extraCharge,
+    totalPrice,
+    advancePaid: advancePaid || 0,
+    status: "confirmed",
+    expiresAt: null,
+    note: note || "",
+    paymentMethod: paymentMethod || "cash",
+  });
+
+  await Room.findByIdAndUpdate(roomId, {
+    $push: {
+      availability: {
+        checkIn: slot.checkIn,
+        checkOut: slot.checkOut,
+        status: "booked",
+        bookingId: booking._id,
+      },
+    },
+  });
+
+  const whatsappLink = generateBookingConfirmationLink(booking, room.roomNumber, houseboat.name);
+
+  res.status(201).json({
+    success: true,
+    message: "ডাইরেক্ট বুকিং কনফার্ম হয়েছে।",
+    data: { booking, whatsappLink },
+  });
+});
+
 // PATCH /api/bookings/:id/confirm
 const confirmBooking = catchAsync(async (req, res, next) => {
   const booking = await Booking.findById(req.params.id).populate("roomId");
@@ -120,7 +205,7 @@ const confirmBooking = catchAsync(async (req, res, next) => {
     return next(new AppError("শুধুমাত্র হোল্ড বা পেন্ডিং বুকিং কনফার্ম করা যাবে।", 400));
   }
 
-  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  const houseboat = await getManagedHouseboat(req.user);
   if (!houseboat || String(booking.houseboatId) !== String(houseboat._id)) {
     return next(new AppError("এই বুকিং অনুমোদনের অধিকার আপনার নেই।", 403));
   }
@@ -215,8 +300,8 @@ const getBookings = catchAsync(async (req, res) => {
 
   if (user.role === "agent") {
     filter.agentId = user._id;
-  } else if (user.role === "boat_owner") {
-    const houseboat = await Houseboat.findOne({ ownerId: user._id });
+  } else if (["boat_owner", "manager"].includes(user.role)) {
+    const houseboat = await getManagedHouseboat(user);
     if (houseboat) filter.houseboatId = houseboat._id;
   }
 
@@ -258,8 +343,8 @@ const getManifest = catchAsync(async (req, res, next) => {
   const rangeEnd = to ? addDays(startOfDay(to), 1) : addDays(rangeStart, 14);
 
   let houseboatId = null;
-  if (user.role === "boat_owner") {
-    const houseboat = await Houseboat.findOne({ ownerId: user._id });
+  if (["boat_owner", "manager"].includes(user.role)) {
+    const houseboat = await getManagedHouseboat(user);
     if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
     houseboatId = houseboat._id;
   } else if (user.role === "agent") {
@@ -342,5 +427,5 @@ const getBooking = catchAsync(async (req, res, next) => {
 });
 
 module.exports = {
-  placeHold, confirmBooking, cancelBooking, completeBooking, getBookings, getBooking, getManifest,
+  placeHold, createDirectBooking, confirmBooking, cancelBooking, completeBooking, getBookings, getBooking, getManifest,
 };

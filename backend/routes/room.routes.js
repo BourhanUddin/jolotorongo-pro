@@ -16,8 +16,8 @@ router.get(
   checkAvailability
 );
 
-// Boat owner CRUD — blocked without active subscription
-router.use(protect, restrictTo("boat_owner"), requireActiveSubscription);
+// Admin/manager CRUD — owner is blocked without active subscription
+router.use(protect, restrictTo("boat_owner", "manager"), requireActiveSubscription);
 router.get("/", getRooms);
 router.get("/:id", getRoom);
 router.post("/", uploadRoomImages, createRoom);

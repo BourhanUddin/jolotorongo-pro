@@ -1,463 +1,190 @@
-'use client';
-import { useAuthStore } from '@/store/auth.store';
-import { useQuery } from '@tanstack/react-query';
-import { adminApi, bookingApi, expenseApi, agentApi, houseboatApi } from '@/lib/api';
-import { StatCard, PageLoader, InfoCard, SectionHeader } from '@/components/ui';
-import { formatMoney, formatDate, statusBadge, daysLeft } from '@/lib/labels';
-import Link from 'next/link';
-import type { Booking, JoinRequest } from '@/types';
+"use client";
+
+import { useAuthStore } from "@/store/auth.store";
+import { useQuery } from "@tanstack/react-query";
+import { agentApi, bookingApi, expenseApi } from "@/lib/api";
+import { StatCard, PageLoader, InfoCard, SectionHeader } from "@/components/ui";
+import { formatMoney, formatDate, statusBadge } from "@/lib/labels";
+import Link from "next/link";
+import Image from "next/image";
+import type { ReactNode } from "react";
+import type { Booking, JoinRequest } from "@/types";
+import SuperAdminDashboard from "../admin/_components/SuperAdminDashboard";
+import { Bell, CalendarCheck, CircleCheck, CirclePlus, Headphones, Hotel, Plus, ReceiptText, Search, ShipWheel, Zap } from "lucide-react";
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
   const role = user?.role;
-  if (role === 'super_admin') return <AdminDashboard />;
-  if (role === 'boat_owner') return <OwnerDashboard />;
+  if (role === "super_admin") return <SuperAdminDashboard />;
+  if (role === "manager") return <OwnerDashboard />;
+  if (role === "boat_owner") return <OwnerDashboard />;
   return <AgentDashboard />;
 }
 
-// ─── Super Admin ──────────────────────────────────────────────
-function AdminDashboard() {
-  const { user } = useAuthStore();
-  const { data, isLoading } = useQuery({
-    queryKey: ['admin-dashboard'],
-    queryFn: () => adminApi.dashboard(),
-    refetchInterval: 30000,
+function OwnerDashboard() {
+  const { data: bookingData, isLoading } = useQuery({
+    queryKey: ["bookings-dashboard"],
+    queryFn: () => bookingApi.list({ limit: 8 }),
   });
-  const stats = data?.data?.data;
+  const { data: reportData } = useQuery({
+    queryKey: ["report-dashboard"],
+    queryFn: () => expenseApi.report(),
+  });
+  const bookings: Booking[] = bookingData?.data?.data?.bookings || [];
+  const report = reportData?.data?.data;
+  const activeTours = bookings.filter((b) => ["on_hold", "confirmed"].includes(b.status)).length;
+  const upcoming = bookings.filter((b) => new Date(b.checkIn) >= new Date()).length;
+  const roomsHealth = [
+    { name: "Emerald Queen", status: "ACTIVE", efficiency: 96, image: "https://images.unsplash.com/photo-1605281317010-fe5ffe798166?w=120&q=80" },
+    { name: "Sapphire Mist", status: "MAINTENANCE", efficiency: 35, image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=120&q=80" },
+    { name: "Sunseeker II", status: "ACTIVE", efficiency: 88, image: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=120&q=80" },
+  ];
 
   if (isLoading) return <PageLoader />;
 
-  const alertIcons: Record<string, string> = {
-    registration: '🛥️',
-    system: '🛡️',
-    revenue: '⚠️',
-    update: '🔔',
-  };
-
-  const alertColors: Record<string, string> = {
-    registration: 'border-l-violet-500 bg-violet-50',
-    system: 'border-l-green-500 bg-green-50',
-    revenue: 'border-l-amber-500 bg-amber-50',
-    update: 'border-l-sky-500 bg-sky-50',
-  };
-
   return (
-    <div className="page fade-in pb-6 bg-[#f4f3ff] min-h-screen">
-
-      {/* ── Welcome Banner ── */}
-      <div className="relative rounded-2xl overflow-hidden mb-5 mx-0">
-        <div
-          className="h-36 w-full bg-cover bg-center"
-          style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=600&q=80')`,
-          }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-violet-900/80 to-violet-600/60" />
-          <div className="relative z-10 p-4 h-full flex flex-col justify-center">
-            <p className="text-violet-200 text-xs font-medium mb-1">Welcome back,</p>
-            <h1 className="text-white font-bold text-xl leading-tight">Super Admin</h1>
-            <p className="text-violet-100 text-xs mt-1 leading-relaxed opacity-90">
-              The Jolotorongo fleet is currently operating at 84% capacity. System health is optimal.
-            </p>
-          </div>
+    <div className="min-h-screen bg-[#fbf5ff] px-4 pb-10 pt-3 text-[#151020]">
+      <div className="mb-7 flex items-center justify-between text-[#32157c]">
+        <div className="flex items-center gap-2">
+          <ShipWheel size={18} />
+          <span className="text-lg font-semibold">Fleet Management</span>
+        </div>
+        <div className="flex gap-5 text-black">
+          <Search size={20} />
+          <Bell size={19} />
         </div>
       </div>
 
-      {/* ── Stat Cards ── */}
-      <div className="flex flex-col gap-3 mb-5">
+      <h1 className="text-2xl font-bold">Ahoy, Captain</h1>
+      <p className="mt-1 text-sm text-slate-700">Operational overview for your houseboat fleet.</p>
 
-        {/* Total Boats */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <div className="flex justify-between items-start mb-3">
-            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-xl">
-              ⛵
-            </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-              +{stats?.boatGrowth || 12}% ↗
-            </span>
+      <section className="mt-6 rounded-lg bg-white p-5 shadow-sm">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-[#32157c]">Total Revenue</p>
+            <p className="mt-1 text-3xl font-semibold">{formatMoney(report?.totalRevenue || 124500)}</p>
           </div>
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-1">TOTAL BOATS</p>
-          <p className="text-3xl font-bold text-slate-800">{stats?.totalBoats || stats?.owners?.active || 0}</p>
-          <p className="text-xs text-slate-400 mt-1">Active across {stats?.totalHaors || 4} haors</p>
+          <span className="rounded-full bg-emerald-100 px-4 py-2 text-[10px] font-bold text-emerald-700">+12% vs last<br />month</span>
         </div>
+        <div className="mt-8 flex h-20 items-end gap-2 rounded bg-[#f6f0fb] p-1">
+          {[50, 66, 34, 74, 50, 66, 84].map((h, i) => <span key={i} className="flex-1 rounded-t-sm bg-[#6b4caf]" style={{ height: `${h}%` }} />)}
+        </div>
+      </section>
 
-        {/* Active Users */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <div className="flex justify-between items-start mb-3">
-            <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center text-xl">
-              👥
-            </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
-              +{stats?.userGrowth || 5}% ↗
-            </span>
+      <section className="mt-4 rounded-lg bg-[#6b4caf] p-4 text-white shadow-md">
+        <div className="flex items-center justify-between">
+          <CircleCheck size={21} className="opacity-80" />
+          <p className="text-xs font-semibold uppercase tracking-widest opacity-80">Active Tours</p>
+        </div>
+        <p className="mt-2 text-xl font-light">{activeTours || 14} Tours</p>
+      </section>
+
+      <section className="mt-4 rounded-lg border border-[#e2d9e7] bg-[#ebe4ed] p-4">
+        <p className="text-xs uppercase tracking-widest">Bookings</p>
+        <div className="mt-1 flex items-center gap-2">
+          <CalendarCheck size={20} className="text-[#32157c]" />
+          <p className="text-xl font-medium">{upcoming || 42} Upcoming</p>
+        </div>
+      </section>
+
+      <section className="mt-7">
+        <h2 className="flex items-center gap-2 text-lg font-medium"><Zap size={18} /> Quick Actions</h2>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <QuickAction href="/bookings/new" icon={<CirclePlus size={23} />} label="Create Tour" />
+          <QuickAction href="/rooms/new" icon={<Hotel size={23} />} label="Add Room" />
+          <QuickAction href="/finance" icon={<ReceiptText size={23} />} label="Reports" />
+          <QuickAction href="/profile" icon={<Headphones size={23} />} label="Support" />
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-medium">Fleet Health</h2>
+          <Link href="/rooms" className="text-xs font-bold text-[#32157c]">Manage All</Link>
+        </div>
+        <div className="rounded-lg bg-white p-4 shadow-sm">
+          <div className="grid grid-cols-[1.4fr_1fr_1fr] text-[10px] tracking-widest text-slate-500">
+            <span>Vessel Name</span><span>Status</span><span>Efficiency</span>
           </div>
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-wide mb-1">ACTIVE USERS</p>
-          <p className="text-3xl font-bold text-slate-800">
-            {stats?.totalUsers || ((stats?.agents?.verified || 0) + (stats?.owners?.active || 0))}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">{stats?.onlineNow || 0} currently online</p>
-        </div>
-
-        {/* MTD Revenue */}
-        <div className="bg-violet-600 rounded-2xl p-4 shadow-sm">
-          <div className="flex justify-between items-start mb-3">
-            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-xl">
-              💰
-            </div>
-            <span className="text-xs font-semibold text-white bg-white/20 px-2 py-0.5 rounded-full">
-              +{stats?.revenueGrowth || 24}% ↗
-            </span>
-          </div>
-          <p className="text-xs text-violet-200 font-medium uppercase tracking-wide mb-1">MTD REVENUE</p>
-          <p className="text-3xl font-bold text-white">
-            {formatMoney(stats?.mtdRevenue || 0)}
-          </p>
-          <p className="text-xs text-violet-200 mt-1">
-            {stats?.revenueTarget ? `Exceeding target by ${formatMoney(stats.revenueTarget)}` : 'Revenue this month'}
-          </p>
-        </div>
-      </div>
-
-      {/* ── Pending alerts row ── */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 text-center">
-          <p className="text-2xl font-bold text-amber-500">{stats?.owners?.pending || 0}</p>
-          <p className="text-xs text-slate-500 mt-1">Pending Owners</p>
-        </div>
-        <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-100 text-center">
-          <p className="text-2xl font-bold text-red-400">{stats?.agents?.unverified || 0}</p>
-          <p className="text-xs text-slate-500 mt-1">Unverified Agents</p>
-        </div>
-      </div>
-
-      {/* ── Live Fleet Monitor ── */}
-      <div className="mb-5">
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="font-bold text-slate-800 text-base">Live Fleet Monitor</h2>
-          <Link href="/admin" className="text-xs text-violet-600 font-semibold flex items-center gap-1">
-            View All →
-          </Link>
-        </div>
-
-        <div className="flex flex-col gap-4">
-          {stats?.recentHouseboats?.length > 0 ? (
-            stats.recentHouseboats.map((boat: {
-              _id: string;
-              name: string;
-              status: string;
-              owner?: { name: string };
-              zone?: string;
-              image?: string;
-            }) => {
-              const statusMap: Record<string, { label: string; cls: string }> = {
-                active:      { label: 'AVAILABLE',   cls: 'bg-green-500 text-white' },
-                booked:      { label: 'BOOKED',      cls: 'bg-red-500 text-white' },
-                on_hold:     { label: 'HOLD',        cls: 'bg-amber-400 text-white' },
-                maintenance: { label: 'MAINTENANCE', cls: 'bg-slate-400 text-white' },
-              };
-              const st = statusMap[boat.status] || { label: boat.status, cls: 'bg-slate-300 text-slate-700' };
-              return (
-                <div key={boat._id} className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100">
-                  <div className="relative">
-                    <img
-                      src={boat.image || `https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=400&q=70`}
-                      alt={boat.name}
-                      className="w-full h-40 object-cover"
-                    />
-                    <span className={`absolute top-3 right-3 text-[10px] font-bold px-2 py-1 rounded-md ${st.cls}`}>
-                      {st.label}
-                    </span>
-                  </div>
-                  <div className="p-3">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="font-bold text-slate-800">{boat.name}</p>
-                    </div>
-                    <div className="flex gap-4 text-xs text-slate-500">
-                      <span>👤 {boat.owner?.name || '—'}</span>
-                      <span>📍 {boat.zone || '—'}</span>
-                    </div>
-                    <div className="flex gap-3 mt-3 pt-3 border-t border-slate-100">
-                      <Link
-                        href={`/admin/houseboats/${boat._id}/edit`}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-violet-600"
-                      >
-                        ✏️ Edit
-                      </Link>
-                      <Link
-                        href={`/admin/houseboats/${boat._id}`}
-                        className="flex items-center gap-1 text-xs text-slate-500 hover:text-violet-600"
-                      >
-                        👁️ View
-                      </Link>
-                    </div>
-                  </div>
+          <div className="mt-4 grid gap-4">
+            {roomsHealth.map((item) => (
+              <div key={item.name} className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Image src={item.image} alt="" width={36} height={36} className="h-9 w-9 rounded object-cover" />
+                  <p className="text-sm font-bold leading-tight">{item.name}</p>
                 </div>
-              );
-            })
-          ) : (
-            /* Skeleton / empty state placeholders */
-            <div className="bg-white rounded-2xl p-4 text-center text-sm text-slate-400 border border-dashed border-slate-200">
-              No houseboats registered yet.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Expiring Subscriptions ── */}
-      {stats?.expiringSubscriptions?.length > 0 && (
-        <div className="mb-5">
-          <h2 className="font-bold text-slate-800 text-base mb-3">⚠️ Expiring Soon</h2>
-          <div className="flex flex-col gap-2">
-            {stats.expiringSubscriptions.map((o: {
-              _id: string;
-              name: string;
-              subscription: { endDate: string; planName: string };
-            }) => (
-              <div key={o._id} className="bg-white rounded-xl p-3 flex justify-between items-center shadow-sm border border-amber-100">
-                <div>
-                  <p className="font-semibold text-sm text-slate-800">{o.name}</p>
-                  <p className="text-xs text-slate-500">{o.subscription?.planName}</p>
-                </div>
-                <p className="text-xs text-amber-600 font-bold">
-                  {daysLeft(o.subscription?.endDate)}d left
-                </p>
+                <span className={`w-fit rounded px-2 py-1 text-[10px] font-bold ${item.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{item.status}</span>
+                <div className="h-2 rounded-full bg-[#eee7f4]"><div className="h-2 rounded-full bg-[#563795]" style={{ width: `${item.efficiency}%` }} /></div>
               </div>
             ))}
           </div>
         </div>
-      )}
+      </section>
 
-      {/* ── Platform Alerts ── */}
-      <div className="mb-5">
-        <h2 className="font-bold text-slate-800 text-base mb-3">Platform Alerts</h2>
-        <div className="flex flex-col gap-3">
-
-          {/* New Registration */}
-          {stats?.owners?.pending > 0 && (
-            <div className="bg-white rounded-xl overflow-hidden shadow-sm border-l-4 border-l-violet-500">
-              <div className="p-3 flex gap-3 items-start">
-                <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-base flex-shrink-0">
-                  🛥️
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-slate-800">New Registration</p>
-                  <p className="text-xs text-slate-400 mb-1">2 mins ago</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    {stats.owners.pending} boat(s) pending verification from owner.
-                  </p>
-                </div>
+      <section className="mt-8">
+        <h2 className="text-lg font-medium">Recent Activity</h2>
+        <div className="mt-4 rounded-lg border border-[#eee7f4] bg-white/70 p-4 shadow-sm">
+          {[
+            ["New Booking", "Private Sunset Cruise for 8 guests on Emerald Queen.", "2 MINUTES AGO", "bg-[#dfd0ff]"],
+            ["Hold Request", "Wedding Event for March 2025 by Sarah J.", "45 MINUTES AGO", "bg-yellow-100"],
+            ["Payment Received", "$2,400 from Corporate Retreat group.", "3 HOURS AGO", "bg-emerald-100"],
+            ["Maintenance Alert", "Sapphire Mist engine cooling issue.", "5 HOURS AGO", "bg-red-100"],
+          ].map(([title, text, time, tone]) => (
+            <div key={title} className="mb-4 flex gap-3 last:mb-0">
+              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}><CircleCheck size={15} /></span>
+              <div>
+                <p className="text-sm"><b>{title}:</b> {text}</p>
+                <p className="mt-1 text-[10px] uppercase text-slate-500">{time}</p>
               </div>
             </div>
-          )}
-
-          {/* System Healthy */}
-          <div className="bg-white rounded-xl overflow-hidden shadow-sm border-l-4 border-l-green-500">
-            <div className="p-3 flex gap-3 items-start">
-              <div className="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center text-base flex-shrink-0">
-                🛡️
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-slate-800">System Healthy</p>
-                <p className="text-xs text-slate-400 mb-1">45 mins ago</p>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Weekly backup completed successfully. All nodes are reporting 99.9% uptime.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Unverified agents warning */}
-          {stats?.agents?.unverified > 0 && (
-            <div className="bg-white rounded-xl overflow-hidden shadow-sm border-l-4 border-l-amber-500">
-              <div className="p-3 flex gap-3 items-start">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-base flex-shrink-0">
-                  ⚠️
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-slate-800">Agents Awaiting Approval</p>
-                  <p className="text-xs text-slate-400 mb-1">1 hour ago</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    {stats.agents.unverified} agent(s) are pending admin verification.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Total bookings info */}
-          <div className="bg-white rounded-xl overflow-hidden shadow-sm border-l-4 border-l-sky-400">
-            <div className="p-3 flex gap-3 items-start">
-              <div className="w-9 h-9 rounded-xl bg-sky-100 flex items-center justify-center text-base flex-shrink-0">
-                📋
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-slate-800">Booking Summary</p>
-                <p className="text-xs text-slate-400 mb-1">Today</p>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Total bookings on the platform: {stats?.totalBookings || 0}.
-                  Operational houseboats: {stats?.totalOperationalHouseboats || 0}.
-                </p>
-              </div>
-            </div>
-          </div>
+          ))}
+          <Link href="/bookings" className="mt-4 block border-t border-[#eee7f4] pt-4 text-center text-sm font-semibold text-[#32157c]">View Activity Log</Link>
         </div>
+      </section>
 
-        <Link href="/admin" className="block text-center text-sm font-semibold text-violet-600 mt-4 py-2">
-          View Alert History →
-        </Link>
-      </div>
-
-      {/* ── Quick Actions ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <Link href="/admin" className="bg-white rounded-2xl p-4 flex flex-col items-center gap-2 shadow-sm hover:shadow-md transition-shadow border border-slate-100">
-          <span className="text-3xl">👥</span>
-          <span className="text-sm font-semibold text-slate-700">User Manage</span>
-        </Link>
-        <Link href="/subscription" className="bg-white rounded-2xl p-4 flex flex-col items-center gap-2 shadow-sm hover:shadow-md transition-shadow border border-slate-100">
-          <span className="text-3xl">💳</span>
-          <span className="text-sm font-semibold text-slate-700">Subscriptions</span>
-        </Link>
-      </div>
+      <section className="relative mt-8 rounded-lg bg-[#563795] p-5 text-white shadow-lg">
+        <h2 className="text-lg font-bold">Elite Fleet Program</h2>
+        <p className="mt-1 max-w-[250px] text-sm leading-relaxed">Upgrade your subscription to unlock automated dynamic pricing and AI guest concierge services.</p>
+        <button className="mt-4 rounded-full bg-white px-5 py-2 text-sm font-bold text-[#32157c]">Learn More</button>
+        <Link href="/bookings/new" className="absolute bottom-0 right-0 flex h-14 w-14 items-center justify-center rounded-tl-xl rounded-br-lg bg-[#4b2a91]"><Plus size={30} /></Link>
+      </section>
     </div>
   );
 }
 
-// ─── Boat Owner ───────────────────────────────────────────────
-function OwnerDashboard() {
-  const { user } = useAuthStore();
-  const { data: bookingData, isLoading } = useQuery({
-    queryKey: ['bookings-dashboard'],
-    queryFn: () => bookingApi.list({ limit: 5 }),
-  });
-  const { data: reportData } = useQuery({
-    queryKey: ['report-dashboard'],
-    queryFn: () => expenseApi.report(),
-  });
-  const { data: holdData } = useQuery({
-    queryKey: ['holds-dashboard'],
-    queryFn: () => bookingApi.list({ status: 'on_hold', limit: 5 }),
-  });
-  const { data: hbData } = useQuery({
-    queryKey: ['my-houseboat'],
-    queryFn: () => houseboatApi.getMy(),
-  });
-
-  const bookings: Booking[] = bookingData?.data?.data?.bookings || [];
-  const holds: Booking[]    = holdData?.data?.data?.bookings || [];
-  const report = reportData?.data?.data;
-  const houseboat = hbData?.data?.data?.houseboat;
-  const sub = user?.subscription;
-  const dl = sub?.endDate ? daysLeft(sub.endDate) : 0;
-
-  if (isLoading) return <PageLoader />;
-
+function QuickAction({ href, icon, label }: { href: string; icon: ReactNode; label: string }) {
   return (
-    <div className="page fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="font-bold text-slate-800 text-lg">স্বাগতম, {user?.name?.split(' ')[0]} 👋</h1>
-          <p className="text-xs text-slate-500">
-            {houseboat?.name} · {sub?.planName || 'সাবস্ক্রিপশন নেই'}
-            {sub?.endDate && <span className="text-amber-500 ml-1">({dl} দিন)</span>}
-          </p>
-        </div>
-        <Link href="/houseboat" className="p-2 rounded-xl bg-slate-100 text-slate-600 min-h-0">
-          ⚙️
-        </Link>
-      </div>
-
-      {/* Finance summary */}
-      <div className="grid grid-cols-3 gap-2 mb-5">
-        <StatCard icon="💰" label="আয়"   value={formatMoney(report?.totalRevenue || 0)} color="green" />
-        <StatCard icon="💸" label="ব্যয়"  value={formatMoney(report?.totalExpense || 0)} color="red" />
-        <StatCard icon="📈" label="লাভ"  value={formatMoney(report?.netProfit    || 0)} color="sky" />
-      </div>
-
-      {/* Pending holds alert */}
-      {holds.length > 0 && (
-        <div className="mb-4">
-          <InfoCard type="warning" message={`⏰ ${holds.length}টি রুম হোল্ড অনুমোদনের অপেক্ষায় আছে।`} />
-        </div>
-      )}
-
-      {/* Quick links */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        {[
-          { href: '/rooms',     icon: '🛏️', label: 'রুম দেখুন' },
-          { href: '/bookings',  icon: '📋', label: 'সব বুকিং' },
-          { href: '/expenses',  icon: '💸', label: 'ব্যয় যোগ' },
-          { href: '/finance',   icon: '📊', label: 'ফাইন্যান্স' },
-          { href: '/agents',    icon: '🤝', label: 'এজেন্ট' },
-          { href: '/houseboat', icon: '⚙️', label: 'বোট সেটিংস' },
-        ].map(l => (
-          <Link key={l.href} href={l.href} className="card flex items-center gap-3 hover:shadow-md transition-shadow">
-            <span className="text-2xl">{l.icon}</span>
-            <span className="text-sm font-semibold text-slate-700">{l.label}</span>
-          </Link>
-        ))}
-      </div>
-
-      {/* Recent bookings */}
-      {bookings.length > 0 && (
-        <div>
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="section-title mb-0">সাম্প্রতিক বুকিং</h2>
-            <Link href="/bookings" className="text-xs text-sky-600 font-medium">সব দেখুন</Link>
-          </div>
-          <div className="flex flex-col gap-2">
-            {bookings.map(b => {
-              const { cls, label } = statusBadge(b.status);
-              const room = typeof b.roomId === 'object' ? b.roomId : null;
-              return (
-                <Link key={b._id} href={`/bookings/${b._id}`} className="card flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold text-sm">{b.customerName}</p>
-                    <p className="text-xs text-slate-500">
-                      {formatDate(b.checkIn)} → {formatDate(b.checkOut)} · রুম {room?.roomNumber || '—'}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className={`badge ${cls}`}>{label}</span>
-                    <p className="text-xs text-slate-600 font-medium mt-1">{formatMoney(b.totalPrice)}</p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
+    <Link href={href} className="flex h-28 flex-col items-center justify-center gap-3 rounded-lg bg-[#eee7f4] text-center">
+      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#563795] text-white">{icon}</span>
+      <span className="text-xs font-medium">{label}</span>
+    </Link>
   );
 }
 
-// ─── Agent ────────────────────────────────────────────────────
 function AgentDashboard() {
   const { user } = useAuthStore();
   const { data: bookingData, isLoading } = useQuery({
-    queryKey: ['agent-bookings'],
+    queryKey: ["agent-bookings"],
     queryFn: () => bookingApi.list({ limit: 5 }),
   });
   const { data: myReqData } = useQuery({
-    queryKey: ['my-join-requests'],
+    queryKey: ["my-join-requests"],
     queryFn: () => agentApi.myJoinRequests(),
   });
 
   const bookings: Booking[] = bookingData?.data?.data?.bookings || [];
   const joinRequests: JoinRequest[] = myReqData?.data?.data?.requests || [];
-  const isVerified  = user?.isApprovedByAdmin && user?.status === 'active';
+  const isVerified = user?.isApprovedByAdmin && user?.status === "active";
   const hasHouseboat = !!user?.joinedHouseboatId;
-  const joinedName = typeof user?.joinedHouseboatId === 'object'
-    ? user.joinedHouseboatId?.name ?? null : null;
+  const joinedName = typeof user?.joinedHouseboatId === "object" ? user.joinedHouseboatId?.name ?? null : null;
 
   if (isLoading) return <PageLoader />;
 
   return (
     <div className="page fade-in">
-      <h1 className="font-bold text-slate-800 text-lg mb-1">স্বাগতম, {user?.name?.split(' ')[0]} 👋</h1>
-      {joinedName && <p className="text-xs text-slate-500 mb-4">🛥️ {joinedName}-এ কর্মরত</p>}
+      <h1 className="mb-1 text-lg font-bold text-slate-800">স্বাগতম, {user?.name?.split(" ")[0]} 👋</h1>
+      {joinedName && <p className="mb-4 text-xs text-slate-500">🛥️ {joinedName}-এ কর্মরত</p>}
 
-      {/* Status alerts */}
       {!isVerified && (
         <div className="mb-4">
           <InfoCard type="warning" message="আপনার অ্যাকাউন্ট এখনো ভেরিফাই হয়নি। সুপার অ্যাডমিনের অনুমোদনের জন্য অপেক্ষা করুন।" />
@@ -469,41 +196,38 @@ function AgentDashboard() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <StatCard icon="📋" label="মোট বুকিং"     value={bookingData?.data?.data?.total || 0} color="sky" />
-        <StatCard icon="⏰" label="হোল্ড বুকিং"   value={bookings.filter(b => b.status === 'on_hold').length} color="amber" />
+      <div className="mb-5 grid grid-cols-2 gap-3">
+        <StatCard icon="📋" label="মোট বুকিং" value={bookingData?.data?.data?.total || 0} color="sky" />
+        <StatCard icon="⏰" label="হোল্ড বুকিং" value={bookings.filter((b) => b.status === "on_hold").length} color="amber" />
       </div>
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <Link href="/agents" className="card flex items-center gap-3 hover:shadow-md transition-shadow">
+      <div className="mb-5 grid grid-cols-2 gap-3">
+        <Link href="/agents" className="card flex items-center gap-3 transition-shadow hover:shadow-md">
           <span className="text-2xl">🛥️</span>
           <span className="text-sm font-semibold text-slate-700">বোট খুঁজুন</span>
         </Link>
         {hasHouseboat && isVerified && (
-          <Link href="/bookings/new" className="card flex items-center gap-3 hover:shadow-md transition-shadow bg-sky-50 border border-sky-200">
+          <Link href="/bookings/new" className="card flex items-center gap-3 border border-sky-200 bg-sky-50 transition-shadow hover:shadow-md">
             <span className="text-2xl">⏰</span>
             <span className="text-sm font-semibold text-sky-700">হোল্ড করুন</span>
           </Link>
         )}
-        <Link href="/bookings" className="card flex items-center gap-3 hover:shadow-md transition-shadow">
+        <Link href="/bookings" className="card flex items-center gap-3 transition-shadow hover:shadow-md">
           <span className="text-2xl">📋</span>
           <span className="text-sm font-semibold text-slate-700">আমার বুকিং</span>
         </Link>
       </div>
 
-      {/* Join request status */}
       {joinRequests.length > 0 && (
         <div className="mb-4">
           <SectionHeader title="যোগ দেওয়ার আবেদন" />
           <div className="flex flex-col gap-2">
-            {joinRequests.slice(0, 3).map(r => {
+            {joinRequests.slice(0, 3).map((r) => {
               const { cls, label } = statusBadge(r.status);
-              const hb = typeof r.houseboatId === 'object' ? r.houseboatId : null;
+              const hb = typeof r.houseboatId === "object" ? r.houseboatId : null;
               return (
-                <div key={r._id} className="card flex justify-between items-center">
-                  <p className="text-sm font-medium">{hb?.name || '—'}</p>
+                <div key={r._id} className="card flex items-center justify-between">
+                  <p className="text-sm font-medium">{hb?.name || "—"}</p>
                   <span className={`badge ${cls}`}>{label}</span>
                 </div>
               );
@@ -512,17 +236,16 @@ function AgentDashboard() {
         </div>
       )}
 
-      {/* Recent bookings */}
       {bookings.length > 0 && (
         <div>
           <SectionHeader title="সাম্প্রতিক বুকিং" />
           <div className="flex flex-col gap-2">
-            {bookings.map(b => {
+            {bookings.map((b) => {
               const { cls, label } = statusBadge(b.status);
               return (
-                <Link key={b._id} href={`/bookings/${b._id}`} className="card flex justify-between items-center">
+                <Link key={b._id} href={`/bookings/${b._id}`} className="card flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-sm">{b.customerName}</p>
+                    <p className="text-sm font-semibold">{b.customerName}</p>
                     <p className="text-xs text-slate-500">{formatDate(b.checkIn)} → {formatDate(b.checkOut)}</p>
                   </div>
                   <span className={`badge ${cls}`}>{label}</span>

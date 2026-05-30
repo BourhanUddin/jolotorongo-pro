@@ -1,195 +1,222 @@
-'use client';
-import { useEffect, useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { bookingApi, roomApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
-import { useRouter } from 'next/navigation';
-import toast from 'react-hot-toast';
-import { Field, Spinner, InfoCard } from '@/components/ui';
-import type { Room } from '@/types';
+"use client";
 
-const addOneDay = (date: string) => {
-  if (!date) return '';
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + 1);
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
-};
+import Image from "next/image";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
+import { ArrowLeft, CalendarDays, ChevronDown, Edit3, Save, Send, ShipWheel } from "lucide-react";
+import { bookingApi, roomApi } from "@/lib/api";
+import { useAuthStore } from "@/store/auth.store";
+import type { Room } from "@/types";
 
 const todayInput = () => {
   const d = new Date();
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
 };
 
-function HoldCountdown({ expiresAt }: { expiresAt?: string | null }) {
-  const [now, setNow] = useState(0);
+const addOneDay = (date: string) => {
+  if (!date) return "";
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+};
 
-  useEffect(() => {
-    const refresh = () => setNow(Date.now());
-    window.setTimeout(refresh, 0);
-    const timer = window.setInterval(refresh, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  if (!expiresAt) return null;
-  if (!now) return <span>--:--</span>;
-  const remaining = Math.max(0, new Date(expiresAt).getTime() - now);
-  const mins = Math.floor(remaining / 60000);
-  const secs = Math.floor((remaining % 60000) / 1000);
-  return <span>{mins}:{String(secs).padStart(2, '0')}</span>;
-}
-
-export default function NewBookingPage() {
+export default function CreateTourPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const qc = useQueryClient();
+  const isAgent = user?.role === "agent";
   const houseboatId = user?.joinedHouseboatId
-    ? (typeof user.joinedHouseboatId === 'object' ? user.joinedHouseboatId._id : user.joinedHouseboatId)
+    ? typeof user.joinedHouseboatId === "object" ? user.joinedHouseboatId._id : user.joinedHouseboatId
     : null;
 
-  const [form, setForm] = useState({ roomId: '', customerName: '', customerPhone: '', customerAddress: '', checkIn: '', checkOut: '', guestCount: '1', advancePaid: '0', note: '' });
-  const up = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
-  const setCheckIn = (value: string) => {
-    setForm(f => ({ ...f, checkIn: value, checkOut: addOneDay(value), roomId: '' }));
-  };
+  const [tourName, setTourName] = useState("Monsoon Serenity #402");
+  const [checkIn, setCheckIn] = useState(todayInput());
+  const [guestCount, setGuestCount] = useState("2");
+  const [roomId, setRoomId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [advancePaid, setAdvancePaid] = useState("0");
 
-  const { data: availData } = useQuery({
-    queryKey: ['availability', houseboatId, form.checkIn, form.checkOut],
-    queryFn: () => roomApi.availability(houseboatId!, form.checkIn, form.checkOut),
-    enabled: !!houseboatId && !!form.checkIn && !!form.checkOut,
-    refetchInterval: 30000,
+  const checkOut = addOneDay(checkIn);
+
+  const { data: ownerRoomsData } = useQuery({
+    queryKey: ["rooms"],
+    queryFn: () => roomApi.list(),
+    enabled: !isAgent,
+  });
+  const { data: availabilityData } = useQuery({
+    queryKey: ["availability", houseboatId, checkIn, checkOut],
+    queryFn: () => roomApi.availability(houseboatId!, checkIn, checkOut),
+    enabled: isAgent && !!houseboatId && !!checkIn,
   });
 
-  const rooms: (Room & { availableOnDate: boolean })[] = availData?.data?.data?.rooms || [];
-  const selectedRoom = rooms.find(r => r._id === form.roomId);
-  const nights = 1;
-  const guests = Number(form.guestCount) || 1;
-  const extra = selectedRoom ? Math.max(0, guests - selectedRoom.maxCapacity) * selectedRoom.extraPersonPrice : 0;
-  const total = selectedRoom ? (selectedRoom.basePrice * nights) + extra : 0;
+  const rooms: (Room & { availableOnDate?: boolean; availabilityState?: string })[] = isAgent
+    ? availabilityData?.data?.data?.rooms || []
+    : ownerRoomsData?.data?.data?.rooms || [];
+  const availableRooms = rooms.filter((room) => !isAgent || room.availableOnDate);
+  const selectedRoom = rooms.find((room) => room._id === roomId) || availableRooms[0];
+  const total = selectedRoom
+    ? selectedRoom.basePrice + Math.max(0, Number(guestCount) - selectedRoom.maxCapacity) * selectedRoom.extraPersonPrice
+    : 0;
 
-  const holdMutation = useMutation({
-    mutationFn: () => bookingApi.hold({ ...form, guestCount: Number(form.guestCount), nights, advancePaid: Number(form.advancePaid) }),
-    onSuccess: () => { toast.success('হোল্ড সফল হয়েছে! ⏰'); router.push('/bookings'); },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি হয়েছে'),
+  const mutation = useMutation({
+    mutationFn: () => {
+      const payload = {
+        roomId: selectedRoom?._id,
+        customerName,
+        customerPhone,
+        customerAddress: "",
+        checkIn,
+        checkOut,
+        guestCount: Number(guestCount),
+        advancePaid: Number(advancePaid),
+        paymentMethod: Number(advancePaid) >= total ? "cash" : "pending",
+        note: tourName,
+      };
+      return isAgent ? bookingApi.hold(payload) : bookingApi.direct(payload);
+    },
+    onSuccess: () => {
+      toast.success(isAgent ? "Hold request created." : "Tour booked and confirmed.");
+      qc.invalidateQueries({ queryKey: ["bookings"] });
+      qc.invalidateQueries({ queryKey: ["bookings-dashboard"] });
+      router.push("/bookings");
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Could not create booking"),
   });
 
-  const canSubmit = form.roomId && form.customerName && form.customerPhone && form.checkIn && form.checkOut;
+  const canSave = selectedRoom && customerName && customerPhone && checkIn;
+  const itinerary = useMemo(() => [
+    ["Boarding & Sunset Cruise", "12:30 PM: Check-in at Tahirpur. Lunch on-board while cruising towards Watch Tower."],
+    ["Morning Mist & Departure", "07:00 AM: Tea & Breakfast. Visit Lakma Chora. 11:30 AM: Drop-off at ghat."],
+  ], []);
 
   return (
-    <div className="page fade-in">
-      <button onClick={() => router.back()} className="text-sm text-sky-600 mb-4 flex items-center gap-1 min-h-0">← ফিরে যান</button>
-      <h1 className="font-bold text-slate-800 text-lg mb-4">🛏️ রুম হোল্ড করুন</h1>
+    <div className="min-h-screen bg-[#fbf5ff] pb-28 text-[#151020]">
+      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#eee7f4] bg-[#fbf5ff]/95 px-5 py-4 backdrop-blur">
+        <button onClick={() => router.back()} className="min-h-0 text-[#32157c]"><ArrowLeft size={24} /></button>
+        <h1 className="text-xl font-medium text-[#32157c]">{isAgent ? "Request Hold" : "Create Tour"}</h1>
+        <span className="text-2xl text-[#32157c]">⋮</span>
+      </div>
 
-      <div className="flex flex-col gap-4">
-        {/* Date first */}
-        <Field label="চেক-ইন তারিখ" required>
-          <input type="date" className="input" value={form.checkIn} min={todayInput()} onChange={e => setCheckIn(e.target.value)} />
-        </Field>
-        {form.checkIn && (
-          <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-            ২ দিন ১ রাত: {form.checkIn} → {form.checkOut}
+      <div className="px-5 py-7">
+        <p className="mb-3 text-xs font-bold uppercase tracking-widest text-slate-500">Tour Identity</p>
+        <label className="flex items-center justify-between rounded-xl bg-white p-5 shadow-sm">
+          <input value={tourName} onChange={(event) => setTourName(event.target.value)} className="w-full bg-transparent text-2xl font-medium outline-none" />
+          <Edit3 className="text-[#c8bdcf]" />
+        </label>
+
+        <section className="mt-7 rounded-xl bg-white p-5 shadow-sm">
+          <div className="flex justify-between gap-4">
+            <label className="flex-1">
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-500">Departure</span>
+              <input type="date" min={todayInput()} value={checkIn} onChange={(event) => setCheckIn(event.target.value)} className="mt-3 w-full bg-transparent text-lg outline-none" />
+            </label>
+            <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-[#f1ebf7] text-[#32157c]"><CalendarDays size={23} /></span>
           </div>
-        )}
-
-        {/* Room selection */}
-        {form.checkIn && (
-          <Field label="রুম বেছে নিন" required>
-            {rooms.length === 0 ? (
-              <p className="text-sm text-slate-500 py-2">কোনো রুম পাওয়া যায়নি</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {rooms.map(r => {
-                  const state = r.availabilityState || (r.availableOnDate ? 'available' : 'booked');
-                  const selectable = state === 'available' && r.isActive;
-                  const stateText = state === 'available' ? 'উপলব্ধ'
-                    : state === 'on_hold' ? 'হোল্ড'
-                    : state === 'maintenance' ? 'মেরামত'
-                    : 'বুকড';
-                  const stateClass = state === 'available'
-                    ? 'border-emerald-300 bg-emerald-50'
-                    : state === 'on_hold'
-                      ? 'border-amber-300 bg-amber-50'
-                      : state === 'maintenance'
-                        ? 'border-slate-200 bg-slate-100 opacity-70'
-                        : 'border-red-300 bg-red-50';
-                  return (
-                    <button
-                      key={r._id}
-                      type="button"
-                      disabled={!selectable}
-                      onClick={() => up('roomId', r._id)}
-                      className={`border-2 rounded-lg p-3 text-left transition-all min-h-0 ${
-                        form.roomId === r._id ? 'border-sky-500 bg-sky-50 shadow-sm' : stateClass
-                      }`}
-                    >
-                      <div className="flex justify-between gap-3">
-                        <p className="font-semibold text-sm">রুম {r.roomNumber} <span className="text-xs text-slate-500 font-normal capitalize">({r.roomType})</span></p>
-                        <p className="font-bold text-sky-700 text-sm">৳{r.basePrice.toLocaleString()}</p>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-xs">
-                        <span className="text-slate-600">{r.maxCapacity} জন · {stateText}</span>
-                        {state === 'on_hold' && (
-                          <span className="font-semibold text-amber-700">
-                            <HoldCountdown expiresAt={r.blockingBooking?.expiresAt} />
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </Field>
-        )}
-
-        {form.roomId && <>
-          <Field label="অতিথি সংখ্যা">
-            <input type="number" className="input" min="1" value={form.guestCount} onChange={e => up('guestCount', e.target.value)} />
-          </Field>
-          <Field label="গ্রাহকের নাম" required>
-            <input className="input" placeholder="আব্দুল করিম" value={form.customerName} onChange={e => up('customerName', e.target.value)} />
-          </Field>
-          <Field label="গ্রাহকের ফোন" required>
-            <input type="tel" className="input" placeholder="01XXXXXXXXX" value={form.customerPhone} onChange={e => up('customerPhone', e.target.value)} />
-          </Field>
-          <Field label="ঠিকানা">
-            <input className="input" placeholder="গ্রাহকের ঠিকানা" value={form.customerAddress} onChange={e => up('customerAddress', e.target.value)} />
-          </Field>
-          <Field label="অগ্রিম পেমেন্ট (৳)">
-            <input type="number" className="input" min="0" value={form.advancePaid} onChange={e => up('advancePaid', e.target.value)} />
-          </Field>
-          <Field label="নোট">
-            <textarea className="input" rows={2} placeholder="বিশেষ কোনো নির্দেশনা..." value={form.note} onChange={e => up('note', e.target.value)} />
-          </Field>
-
-          {/* Price summary */}
-          <div className="bg-sky-50 rounded-xl p-4 border border-sky-100">
-            <p className="font-semibold text-sky-800 mb-2">💰 মূল্য সারসংক্ষেপ</p>
-            <div className="flex flex-col gap-1 text-sm">
-              <div className="flex justify-between"><span className="text-slate-600">বেস মূল্য (২ দিন ১ রাত)</span><span>৳{(selectedRoom!.basePrice * nights).toLocaleString()}</span></div>
-              {extra > 0 && <div className="flex justify-between text-amber-700"><span>অতিরিক্ত অতিথি</span><span>+৳{extra.toLocaleString()}</span></div>}
-              <div className="flex justify-between font-bold text-sky-800 border-t border-sky-200 pt-1 mt-1"><span>মোট</span><span>৳{total.toLocaleString()}</span></div>
-              <div className="flex justify-between text-emerald-600"><span>অগ্রিম</span><span>৳{Number(form.advancePaid).toLocaleString()}</span></div>
-              <div className="flex justify-between text-red-500"><span>বাকি</span><span>৳{Math.max(0, total - Number(form.advancePaid)).toLocaleString()}</span></div>
+          <div className="mt-8 border-t border-[#e2d9e7] pt-4">
+            <div className="flex justify-between">
+              <span>2D / 1N Logic</span>
+              <span className="rounded bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">AUTOMATIC</span>
             </div>
+            <p className="mt-2 text-xs text-slate-500">Return: {checkOut || "Select departure date"}</p>
           </div>
+        </section>
 
-          <InfoCard type="warning" message="হোল্ড ৬০ মিনিট পর স্বয়ংক্রিয়ভাবে বাতিল হবে। সময়মতো কনফার্ম করুন।" />
-        </>}
+        <section className="mt-5 rounded-xl bg-white p-5 shadow-sm">
+          <div className="flex justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-500">Select Vessel</p>
+              <p className="mt-3 text-lg">Your Assigned Houseboat</p>
+            </div>
+            <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-[#f1ebf7] text-[#32157c]"><ShipWheel size={23} /></span>
+          </div>
+          <div className="mt-8 flex items-center justify-between border-t border-[#e2d9e7] pt-4">
+            <span>Capacity: {rooms.reduce((sum, room) => sum + room.maxCapacity, 0) || 12} Persons</span>
+            <ChevronDown size={20} />
+          </div>
+        </section>
 
-        <button
-          onClick={() => holdMutation.mutate()}
-          disabled={!canSubmit || holdMutation.isPending}
-          className="btn btn-primary btn-full"
-        >
-          {holdMutation.isPending ? <Spinner size="sm" /> : '⏰ হোল্ড করুন'}
-        </button>
+        <section className="mt-7">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg">Room Assignment</h2>
+            <span className="text-sm font-bold text-[#32157c]">{availableRooms.length} AVAILABLE</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {rooms.slice(0, 6).map((room, index) => {
+              const selectable = !isAgent || room.availableOnDate;
+              const active = (roomId || selectedRoom?._id) === room._id;
+              return (
+                <button
+                  key={room._id}
+                  disabled={!selectable}
+                  onClick={() => setRoomId(room._id)}
+                  className={`overflow-hidden rounded-xl border bg-white text-left shadow-sm disabled:opacity-50 ${active ? "border-[#563795]" : "border-[#ddd4e5]"}`}
+                >
+                  <Image
+                    src={room.images?.[0] || [
+                      "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=500&q=80",
+                      "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=500&q=80",
+                      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=500&q=80",
+                    ][index % 3]}
+                    alt={`Room ${room.roomNumber}`}
+                    width={220}
+                    height={120}
+                    className="h-24 w-full object-cover"
+                  />
+                  <div className="p-3">
+                    <p className="font-bold">Room {room.roomNumber}</p>
+                    <p className="text-sm">{room.maxCapacity} Adults</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="mt-7 grid gap-3">
+          <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name" className="h-14 rounded-lg border border-[#d8cfdc] bg-white px-4 outline-none" />
+          <input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Customer phone" className="h-14 rounded-lg border border-[#d8cfdc] bg-white px-4 outline-none" />
+          <div className="grid grid-cols-2 gap-3">
+            <input value={guestCount} onChange={(event) => setGuestCount(event.target.value)} type="number" min="1" className="h-14 rounded-lg border border-[#d8cfdc] bg-white px-4 outline-none" />
+            <input value={advancePaid} onChange={(event) => setAdvancePaid(event.target.value)} type="number" min="0" placeholder="Advance paid" className="h-14 rounded-lg border border-[#d8cfdc] bg-white px-4 outline-none" />
+          </div>
+          <div className="rounded-lg bg-white p-4 text-sm shadow-sm">
+            <div className="flex justify-between"><span>Total</span><b>৳{total.toLocaleString()}</b></div>
+            <div className="mt-1 flex justify-between text-red-600"><span>Due</span><b>৳{Math.max(0, total - Number(advancePaid)).toLocaleString()}</b></div>
+          </div>
+        </section>
+
+        <section className="mt-8">
+          <h2 className="mb-4 text-lg">Itinerary Preview</h2>
+          <div className="grid gap-5">
+            {itinerary.map(([title, body], index) => (
+              <div key={title} className="flex gap-4">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-bold ${index === 0 ? "bg-[#6b4caf] text-white" : "bg-[#e6e0e8]"}`}>{index + 1}</span>
+                <div className={`rounded-xl bg-white/50 p-5 shadow-sm ${index === 0 ? "border-l-4 border-[#563795]" : "border-l-4 border-[#c8bdcf]"}`}>
+                  <p className="font-bold">{title}</p>
+                  <p className="mt-2 leading-relaxed text-slate-700">{body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 z-20 bg-[#fbf5ff]/95 px-5 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-md gap-4">
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={!canSave || mutation.isPending}
+            className="flex flex-1 items-center justify-center gap-3 rounded-lg bg-[#563795] py-4 font-semibold text-white disabled:opacity-60"
+          >
+            <Save size={20} /> {mutation.isPending ? "Saving..." : isAgent ? "Send Hold" : "Save Tour"}
+          </button>
+          <button className="flex h-14 w-16 items-center justify-center rounded-lg border-2 border-[#32157c] text-[#32157c]">
+            <Send size={22} />
+          </button>
+        </div>
       </div>
     </div>
   );

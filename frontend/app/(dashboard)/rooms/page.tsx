@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { Plus, ToggleLeft, ToggleRight } from 'lucide-react';
 import type { Room } from '@/types';
 import Image from 'next/image';
+import Link from 'next/link';
 
 const TYPES = ['single','double','family','vip','dormitory'];
 
@@ -21,7 +22,6 @@ export default function RoomsPage() {
   const { data, isLoading } = useQuery({ queryKey: ['rooms'], queryFn: () => roomApi.list() });
   const rooms: Room[] = data?.data?.data?.rooms || [];
 
-  const openCreate = () => { setEditing(null); setImageFiles([]); setForm({ roomNumber:'', roomType:'double', basePrice:'', extraPersonPrice:'0', maxCapacity:'2', description:'', amenities:'', imageUrls:'' }); setShowModal(true); };
   const openEdit = (r: Room) => { setEditing(r); setImageFiles([]); setForm({ roomNumber: r.roomNumber, roomType: r.roomType, basePrice: String(r.basePrice), extraPersonPrice: String(r.extraPersonPrice), maxCapacity: String(r.maxCapacity), description: r.description, amenities: r.amenities.join(', '), imageUrls: (r.images || []).join('\n') }); setShowModal(true); };
 
   const saveMutation = useMutation({
@@ -54,9 +54,9 @@ export default function RoomsPage() {
   return (
     <div className="page fade-in">
       <SectionHeader title={`🛏️ রুম (${rooms.length})`} action={
-        <button onClick={openCreate} className="btn btn-primary text-sm">
+        <Link href="/rooms/new" className="btn btn-primary text-sm">
           <Plus size={15} /> নতুন রুম
-        </button>
+        </Link>
       } />
 
       {rooms.length === 0 ? (

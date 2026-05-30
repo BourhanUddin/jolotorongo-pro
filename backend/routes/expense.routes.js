@@ -5,7 +5,7 @@ const {
 } = require("../controllers/expense.controller");
 const { protect, restrictTo, requireActiveSubscription } = require("../middleware/auth.middleware");
 
-router.use(protect, restrictTo("boat_owner"), requireActiveSubscription);
+router.use(protect, restrictTo("boat_owner", "manager"), requireActiveSubscription);
 
 router.get("/report", getFinanceReport);
 router.get("/", getExpenses);
