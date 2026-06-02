@@ -1,7 +1,6 @@
 'use client';
 import { statusBadge } from '@/lib/labels';
 import { X, AlertTriangle } from 'lucide-react';
-import { useState } from 'react';
 
 // ─── Spinner ─────────────────────────────────────────────────
 export function Spinner({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {

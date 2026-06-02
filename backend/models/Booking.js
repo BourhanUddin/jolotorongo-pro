@@ -27,16 +27,25 @@ const bookingSchema = new mongoose.Schema(
     customerName: { type: String, required: true, trim: true },
     customerPhone: { type: String, required: true, trim: true },
     customerAddress: { type: String, default: "" },
+    referenceName: { type: String, default: "" },
     guestCount: { type: Number, default: 1 },
 
     checkIn: { type: Date, required: true },
     checkOut: { type: Date, required: true },
     nights: { type: Number, default: 1 },
 
+    tourName: { type: String, default: "" },
+    pricingMode: {
+      type: String,
+      enum: ["ac", "non_ac"],
+      default: "ac",
+    },
     basePrice: { type: Number, required: true },
     extraCharge: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     totalPrice: { type: Number, required: true },
+    agentCommission: { type: Number, default: 0 },
+    netRevenue: { type: Number, default: 0 },
     advancePaid: { type: Number, default: 0 },
     dueAmount: { type: Number, default: 0 },
 

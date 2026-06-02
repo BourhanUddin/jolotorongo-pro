@@ -2,7 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { roomApi } from '@/lib/api';
 import { useState } from 'react';
-import { PageLoader, EmptyState, StatusBadge, Modal, Field, Spinner, SectionHeader } from '@/components/ui';
+import { PageLoader, EmptyState, Modal, Field, Spinner, SectionHeader } from '@/components/ui';
 import toast from 'react-hot-toast';
 import { Plus, ToggleLeft, ToggleRight } from 'lucide-react';
 import type { Room } from '@/types';
@@ -15,18 +15,18 @@ export default function RoomsPage() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Room | null>(null);
-  const [form, setForm] = useState({ roomNumber:'', roomType:'double', basePrice:'', extraPersonPrice:'0', maxCapacity:'2', description:'', amenities:'', imageUrls:'' });
+  const [form, setForm] = useState({ roomNumber:'', roomType:'double', acRoomPrice:'', nonAcRoomPrice:'', extraPersonPrice:'0', maxCapacity:'2', description:'', amenities:'', services:'', imageUrls:'' });
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const up = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const { data, isLoading } = useQuery({ queryKey: ['rooms'], queryFn: () => roomApi.list() });
   const rooms: Room[] = data?.data?.data?.rooms || [];
 
-  const openEdit = (r: Room) => { setEditing(r); setImageFiles([]); setForm({ roomNumber: r.roomNumber, roomType: r.roomType, basePrice: String(r.basePrice), extraPersonPrice: String(r.extraPersonPrice), maxCapacity: String(r.maxCapacity), description: r.description, amenities: r.amenities.join(', '), imageUrls: (r.images || []).join('\n') }); setShowModal(true); };
+  const openEdit = (r: Room) => { setEditing(r); setImageFiles([]); setForm({ roomNumber: r.roomNumber, roomType: r.roomType, acRoomPrice: String(r.acRoomPrice || r.basePrice), nonAcRoomPrice: String(r.nonAcRoomPrice || r.basePrice), extraPersonPrice: String(r.extraPersonPrice), maxCapacity: String(r.maxCapacity), description: r.description, amenities: r.amenities.join(', '), services: (r.services || []).join(', '), imageUrls: (r.images || []).join('\n') }); setShowModal(true); };
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const payload = { ...form, basePrice: Number(form.basePrice), extraPersonPrice: Number(form.extraPersonPrice), maxCapacity: Number(form.maxCapacity), amenities: form.amenities.split(',').map(a => a.trim()).filter(Boolean), imageUrls: form.imageUrls.split('\n').map(url => url.trim()).filter(Boolean) };
+      const payload = { ...form, acRoomPrice: Number(form.acRoomPrice), nonAcRoomPrice: Number(form.nonAcRoomPrice), basePrice: Number(form.acRoomPrice), extraPersonPrice: Number(form.extraPersonPrice), maxCapacity: Number(form.maxCapacity), amenities: form.amenities.split(',').map(a => a.trim()).filter(Boolean), services: form.services.split(',').map(a => a.trim()).filter(Boolean), imageUrls: form.imageUrls.split('\n').map(url => url.trim()).filter(Boolean) };
       if (imageFiles.length > 0) {
         const fd = new FormData();
         Object.entries(payload).forEach(([key, value]) => {
@@ -43,7 +43,7 @@ export default function RoomsPage() {
 
   const toggleMutation = useMutation({
     mutationFn: (id: string) => roomApi.toggle(id),
-    onSuccess: (_, id) => { toast.success('রুমের অবস্থা পরিবর্তন হয়েছে'); qc.invalidateQueries({ queryKey: ['rooms'] }); },
+    onSuccess: () => { toast.success('রুমের অবস্থা পরিবর্তন হয়েছে'); qc.invalidateQueries({ queryKey: ['rooms'] }); },
   });
 
   if (isLoading) return <PageLoader />;
@@ -74,13 +74,19 @@ export default function RoomsPage() {
                   <p className="text-xs text-slate-500 capitalize">{r.roomType} · সর্বোচ্চ {r.maxCapacity} জন</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-sky-600">৳{r.basePrice.toLocaleString()}</p>
+                  <p className="font-bold text-sky-600">AC ৳{(r.acRoomPrice || r.basePrice).toLocaleString()}</p>
+                  <p className="text-xs text-slate-500">Non-AC ৳{(r.nonAcRoomPrice || r.basePrice).toLocaleString()}</p>
                   {r.extraPersonPrice > 0 && <p className="text-xs text-slate-500">+৳{r.extraPersonPrice}/জন</p>}
                 </div>
               </div>
               {r.amenities.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
               {r.amenities.map((a, i) => <span key={i} className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">{a}</span>)}
+                </div>
+              )}
+              {(r.services || []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {r.services.map((a, i) => <span key={i} className="text-xs bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">{a}</span>)}
                 </div>
               )}
               {r.images?.length > 0 && (
@@ -115,18 +121,24 @@ export default function RoomsPage() {
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="মূল মূল্য (৳)" required>
-              <input type="number" className="input" placeholder="2500" value={form.basePrice} onChange={e => up('basePrice', e.target.value)} />
+            <Field label="AC Room Price (৳)" required>
+              <input type="number" className="input" placeholder="2500" value={form.acRoomPrice} onChange={e => up('acRoomPrice', e.target.value)} />
             </Field>
-            <Field label="অতিরিক্ত/জন (৳)">
-              <input type="number" className="input" placeholder="500" value={form.extraPersonPrice} onChange={e => up('extraPersonPrice', e.target.value)} />
+            <Field label="Non-AC Room Price (৳)" required>
+              <input type="number" className="input" placeholder="2000" value={form.nonAcRoomPrice} onChange={e => up('nonAcRoomPrice', e.target.value)} />
             </Field>
           </div>
+          <Field label="অতিরিক্ত/জন (৳)">
+            <input type="number" className="input" placeholder="500" value={form.extraPersonPrice} onChange={e => up('extraPersonPrice', e.target.value)} />
+          </Field>
           <Field label="সর্বোচ্চ ধারণক্ষমতা">
             <input type="number" className="input" placeholder="2" value={form.maxCapacity} onChange={e => up('maxCapacity', e.target.value)} />
           </Field>
           <Field label="সুযোগ-সুবিধা (কমা দিয়ে)">
             <input className="input" placeholder="AC, Attached Bath, TV" value={form.amenities} onChange={e => up('amenities', e.target.value)} />
+          </Field>
+          <Field label="সার্ভিস (কমা দিয়ে)">
+            <input className="input" placeholder="Breakfast, Guide, Life Jacket" value={form.services} onChange={e => up('services', e.target.value)} />
           </Field>
           <Field label="ছবির URL (প্রতি লাইনে একটি)">
             <textarea className="input" rows={2} placeholder="https://..." value={form.imageUrls} onChange={e => up('imageUrls', e.target.value)} />
@@ -139,7 +151,7 @@ export default function RoomsPage() {
           </Field>
           <div className="flex gap-2 mt-1">
             <button onClick={() => setShowModal(false)} className="btn btn-outline flex-1">বাতিল</button>
-            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.roomNumber || !form.basePrice} className="btn btn-primary flex-1">
+            <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || !form.roomNumber || !form.acRoomPrice || !form.nonAcRoomPrice} className="btn btn-primary flex-1">
               {saveMutation.isPending ? <Spinner size="sm" /> : (editing ? 'আপডেট' : 'তৈরি করুন')}
             </button>
           </div>

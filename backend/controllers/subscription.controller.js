@@ -3,6 +3,7 @@ const SubscriptionPlan = require("../models/SubscriptionPlan");
 const Houseboat = require("../models/Houseboat");
 const { AppError, catchAsync } = require("../utils/appError");
 const { pushNotification } = require("../utils/notification");
+const { objectId, requiredString, optionalString, numberValue, enumValue } = require("../utils/validation");
 
 // ──────────────────────────────────────────────────────────────
 // PUBLIC / BOAT OWNER
@@ -18,8 +19,16 @@ const getPlans = catchAsync(async (req, res) => {
 // Boat owner submits payment reference and chosen plan.
 // Status becomes "pending_approval" until super_admin approves.
 const purchaseSubscription = catchAsync(async (req, res, next) => {
-  const { planId, paymentMethod, paymentReference } = req.body;
+  const {
+    planId,
+    paymentMethod,
+    paymentReference,
+    senderNumber,
+    paymentScreenshotUrl,
+    paymentNote,
+  } = req.body;
   const user = req.user;
+  objectId(planId, "প্ল্যান আইডি");
 
   if (user.role !== "boat_owner") {
     return next(new AppError("শুধুমাত্র বোট ওনার সাবস্ক্রিপশন কিনতে পারবেন।", 403));
@@ -30,9 +39,11 @@ const purchaseSubscription = catchAsync(async (req, res, next) => {
     return next(new AppError("প্ল্যান পাওয়া যায়নি বা নিষ্ক্রিয়।", 404));
   }
 
-  if (!paymentMethod || !paymentReference) {
-    return next(new AppError("পেমেন্ট পদ্ধতি এবং রেফারেন্স নম্বর দিতে হবে।", 400));
-  }
+  const normalizedMethod = enumValue(paymentMethod, ["bkash", "nagad", "rocket", "bank", "card", "cash", "demo_card"], "পেমেন্ট পদ্ধতি");
+  const normalizedReference = requiredString(paymentReference, "পেমেন্ট রেফারেন্স", 120);
+  const normalizedSender = optionalString(senderNumber, 40);
+  const screenshotUrl = req.paymentScreenshotUrl || optionalString(paymentScreenshotUrl, 500);
+  const normalizedNote = optionalString(paymentNote, 500);
 
   user.subscription = {
     planId: plan._id,
@@ -40,9 +51,13 @@ const purchaseSubscription = catchAsync(async (req, res, next) => {
     startDate: null,      // Set by admin on approval
     endDate: null,
     isActive: false,
-    paymentMethod,
-    paymentReference,
+    paymentMethod: normalizedMethod,
+    paymentReference: normalizedReference,
     paymentStatus: "pending_approval",
+    senderNumber: normalizedSender || null,
+    paymentScreenshotUrl: screenshotUrl || null,
+    paymentNote: normalizedNote || null,
+    rejectionReason: null,
     renewalAlertSent: false,
   };
   user.status = "pending";
@@ -82,6 +97,7 @@ const getPendingApprovals = catchAsync(async (req, res) => {
 
 // PATCH /api/subscriptions/:userId/approve
 const approveSubscription = catchAsync(async (req, res, next) => {
+  objectId(req.params.userId, "ইউজার আইডি");
   const owner = await User.findById(req.params.userId);
   if (!owner || owner.role !== "boat_owner") {
     return next(new AppError("বোট ওনার পাওয়া যায়নি।", 404));
@@ -98,6 +114,7 @@ const approveSubscription = catchAsync(async (req, res, next) => {
   owner.subscription.endDate = endDate;
   owner.subscription.isActive = true;
   owner.subscription.paymentStatus = "paid";
+  owner.subscription.rejectionReason = null;
   owner.status = "active";
   owner.isApprovedByAdmin = true;
   await owner.save();
@@ -121,18 +138,21 @@ const approveSubscription = catchAsync(async (req, res, next) => {
 // PATCH /api/subscriptions/:userId/reject
 const rejectSubscription = catchAsync(async (req, res, next) => {
   const { reason } = req.body;
+  objectId(req.params.userId, "ইউজার আইডি");
   const owner = await User.findById(req.params.userId);
   if (!owner || owner.role !== "boat_owner") {
     return next(new AppError("বোট ওনার পাওয়া যায়নি।", 404));
   }
 
   owner.subscription.paymentStatus = "failed";
+  owner.subscription.isActive = false;
+  owner.subscription.rejectionReason = optionalString(reason, 300) || "অজানা";
   owner.status = "pending";
   await owner.save();
 
   await pushNotification(
     owner._id,
-    `❌ আপনার পেমেন্ট যাচাই ব্যর্থ হয়েছে। কারণ: ${reason || "অজানা"}। পুনরায় চেষ্টা করুন।`,
+    `❌ আপনার পেমেন্ট যাচাই ব্যর্থ হয়েছে। কারণ: ${owner.subscription.rejectionReason}। পুনরায় চেষ্টা করুন।`,
     "error"
   );
 
@@ -143,13 +163,27 @@ const rejectSubscription = catchAsync(async (req, res, next) => {
 // SUPER ADMIN — Plan CRUD
 // ──────────────────────────────────────────────────────────────
 
+const buildPlanPayload = (body, partial = false) => {
+  const payload = {};
+  if (!partial || body.name !== undefined) payload.name = requiredString(body.name, "প্ল্যান নাম", 80);
+  if (!partial || body.durationDays !== undefined) payload.durationDays = numberValue(body.durationDays, "মেয়াদ", { min: 1, max: 3650, integer: true });
+  if (!partial || body.price !== undefined) payload.price = numberValue(body.price, "মূল্য", { min: 0 });
+  if (body.description !== undefined) payload.description = optionalString(body.description, 500);
+  if (body.features !== undefined) payload.features = Array.isArray(body.features) ? body.features.map((f) => optionalString(f, 120)).filter(Boolean) : [];
+  if (!partial || body.maxRooms !== undefined) payload.maxRooms = numberValue(body.maxRooms ?? 10, "রুম সীমা", { min: 1, max: 9999, integer: true });
+  if (!partial || body.maxAgents !== undefined) payload.maxAgents = numberValue(body.maxAgents ?? 5, "এজেন্ট সীমা", { min: 1, max: 9999, integer: true });
+  if (body.isActive !== undefined) payload.isActive = Boolean(body.isActive);
+  return payload;
+};
+
 const createPlan = catchAsync(async (req, res) => {
-  const plan = await SubscriptionPlan.create(req.body);
+  const plan = await SubscriptionPlan.create(buildPlanPayload(req.body));
   res.status(201).json({ success: true, data: { plan } });
 });
 
 const updatePlan = catchAsync(async (req, res, next) => {
-  const plan = await SubscriptionPlan.findByIdAndUpdate(req.params.planId, req.body, {
+  objectId(req.params.planId, "প্ল্যান আইডি");
+  const plan = await SubscriptionPlan.findByIdAndUpdate(req.params.planId, buildPlanPayload(req.body, true), {
     new: true, runValidators: true,
   });
   if (!plan) return next(new AppError("প্ল্যান পাওয়া যায়নি।", 404));
@@ -157,6 +191,7 @@ const updatePlan = catchAsync(async (req, res, next) => {
 });
 
 const deletePlan = catchAsync(async (req, res, next) => {
+  objectId(req.params.planId, "প্ল্যান আইডি");
   const plan = await SubscriptionPlan.findByIdAndUpdate(
     req.params.planId, { isActive: false }, { new: true }
   );

@@ -2,13 +2,13 @@
 
 import { useAuthStore } from "@/store/auth.store";
 import { useQuery } from "@tanstack/react-query";
-import { agentApi, bookingApi, expenseApi } from "@/lib/api";
+import { agentApi, bookingApi, expenseApi, roomApi } from "@/lib/api";
 import { StatCard, PageLoader, InfoCard, SectionHeader } from "@/components/ui";
 import { formatMoney, formatDate, statusBadge } from "@/lib/labels";
 import Link from "next/link";
 import Image from "next/image";
 import type { ReactNode } from "react";
-import type { Booking, JoinRequest } from "@/types";
+import type { Booking, JoinRequest, Room } from "@/types";
 import SuperAdminDashboard from "../admin/_components/SuperAdminDashboard";
 import { Bell, CalendarCheck, CircleCheck, CirclePlus, Headphones, Hotel, Plus, ReceiptText, Search, ShipWheel, Zap } from "lucide-react";
 
@@ -30,15 +30,21 @@ function OwnerDashboard() {
     queryKey: ["report-dashboard"],
     queryFn: () => expenseApi.report(),
   });
+  const { data: roomData } = useQuery({
+    queryKey: ["rooms-dashboard"],
+    queryFn: () => roomApi.list(),
+  });
   const bookings: Booking[] = bookingData?.data?.data?.bookings || [];
+  const rooms: Room[] = roomData?.data?.data?.rooms || [];
   const report = reportData?.data?.data;
   const activeTours = bookings.filter((b) => ["on_hold", "confirmed"].includes(b.status)).length;
   const upcoming = bookings.filter((b) => new Date(b.checkIn) >= new Date()).length;
-  const roomsHealth = [
-    { name: "Emerald Queen", status: "ACTIVE", efficiency: 96, image: "https://images.unsplash.com/photo-1605281317010-fe5ffe798166?w=120&q=80" },
-    { name: "Sapphire Mist", status: "MAINTENANCE", efficiency: 35, image: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=120&q=80" },
-    { name: "Sunseeker II", status: "ACTIVE", efficiency: 88, image: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=120&q=80" },
-  ];
+  const roomHealth = rooms.slice(0, 4).map((room) => ({
+    name: `Room ${room.roomNumber}`,
+    status: room.status === "maintenance" || !room.isActive ? "MAINTENANCE" : "ACTIVE",
+    efficiency: room.status === "maintenance" || !room.isActive ? 35 : 92,
+    image: room.images?.[0] || "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=160&q=80",
+  }));
 
   if (isLoading) return <PageLoader />;
 
@@ -62,7 +68,7 @@ function OwnerDashboard() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-[#32157c]">Total Revenue</p>
-            <p className="mt-1 text-3xl font-semibold">{formatMoney(report?.totalRevenue || 124500)}</p>
+            <p className="mt-1 text-3xl font-semibold">{formatMoney(report?.totalRevenue || 0)}</p>
           </div>
           <span className="rounded-full bg-emerald-100 px-4 py-2 text-[10px] font-bold text-emerald-700">+12% vs last<br />month</span>
         </div>
@@ -76,14 +82,14 @@ function OwnerDashboard() {
           <CircleCheck size={21} className="opacity-80" />
           <p className="text-xs font-semibold uppercase tracking-widest opacity-80">Active Tours</p>
         </div>
-        <p className="mt-2 text-xl font-light">{activeTours || 14} Tours</p>
+        <p className="mt-2 text-xl font-light">{activeTours} Tours</p>
       </section>
 
       <section className="mt-4 rounded-lg border border-[#e2d9e7] bg-[#ebe4ed] p-4">
         <p className="text-xs uppercase tracking-widest">Bookings</p>
         <div className="mt-1 flex items-center gap-2">
           <CalendarCheck size={20} className="text-[#32157c]" />
-          <p className="text-xl font-medium">{upcoming || 42} Upcoming</p>
+          <p className="text-xl font-medium">{upcoming} Upcoming</p>
         </div>
       </section>
 
@@ -107,7 +113,10 @@ function OwnerDashboard() {
             <span>Vessel Name</span><span>Status</span><span>Efficiency</span>
           </div>
           <div className="mt-4 grid gap-4">
-            {roomsHealth.map((item) => (
+            {roomHealth.length === 0 && (
+              <p className="col-span-3 text-sm text-slate-500">No rooms yet. Add rooms to start bookings.</p>
+            )}
+            {roomHealth.map((item) => (
               <div key={item.name} className="grid grid-cols-[1.4fr_1fr_1fr] items-center gap-3">
                 <div className="flex items-center gap-2">
                   <Image src={item.image} alt="" width={36} height={36} className="h-9 w-9 rounded object-cover" />
@@ -124,17 +133,13 @@ function OwnerDashboard() {
       <section className="mt-8">
         <h2 className="text-lg font-medium">Recent Activity</h2>
         <div className="mt-4 rounded-lg border border-[#eee7f4] bg-white/70 p-4 shadow-sm">
-          {[
-            ["New Booking", "Private Sunset Cruise for 8 guests on Emerald Queen.", "2 MINUTES AGO", "bg-[#dfd0ff]"],
-            ["Hold Request", "Wedding Event for March 2025 by Sarah J.", "45 MINUTES AGO", "bg-yellow-100"],
-            ["Payment Received", "$2,400 from Corporate Retreat group.", "3 HOURS AGO", "bg-emerald-100"],
-            ["Maintenance Alert", "Sapphire Mist engine cooling issue.", "5 HOURS AGO", "bg-red-100"],
-          ].map(([title, text, time, tone]) => (
-            <div key={title} className="mb-4 flex gap-3 last:mb-0">
-              <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}><CircleCheck size={15} /></span>
+          {bookings.length === 0 && <p className="text-sm text-slate-500">No recent booking activity.</p>}
+          {bookings.slice(0, 4).map((booking) => (
+            <div key={booking._id} className="mb-4 flex gap-3 last:mb-0">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dfd0ff]"><CircleCheck size={15} /></span>
               <div>
-                <p className="text-sm"><b>{title}:</b> {text}</p>
-                <p className="mt-1 text-[10px] uppercase text-slate-500">{time}</p>
+                <p className="text-sm"><b>{booking.status.replace("_", " ")}:</b> {booking.customerName} on {formatDate(booking.checkIn)}</p>
+                <p className="mt-1 text-[10px] uppercase text-slate-500">{formatMoney(booking.totalPrice)}</p>
               </div>
             </div>
           ))}
@@ -143,9 +148,9 @@ function OwnerDashboard() {
       </section>
 
       <section className="relative mt-8 rounded-lg bg-[#563795] p-5 text-white shadow-lg">
-        <h2 className="text-lg font-bold">Elite Fleet Program</h2>
-        <p className="mt-1 max-w-[250px] text-sm leading-relaxed">Upgrade your subscription to unlock automated dynamic pricing and AI guest concierge services.</p>
-        <button className="mt-4 rounded-full bg-white px-5 py-2 text-sm font-bold text-[#32157c]">Learn More</button>
+        <h2 className="text-lg font-bold">Smart Fleet Tools</h2>
+        <p className="mt-1 max-w-[250px] text-sm leading-relaxed">Manage rooms, bookings, reports, and guest operations from one dashboard.</p>
+        <Link href="/rooms" className="mt-4 inline-flex rounded-full bg-white px-5 py-2 text-sm font-bold text-[#32157c]">Manage Rooms</Link>
         <Link href="/bookings/new" className="absolute bottom-0 right-0 flex h-14 w-14 items-center justify-center rounded-tl-xl rounded-br-lg bg-[#4b2a91]"><Plus size={30} /></Link>
       </section>
     </div>

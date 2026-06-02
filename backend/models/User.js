@@ -4,9 +4,18 @@ const bcrypt = require("bcryptjs");
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: [true, "নাম দিতে হবে"], trim: true },
-    email: { type: String, required: [true, "ইমেইল দিতে হবে"], unique: true, lowercase: true, trim: true },
-    phone: { type: String, required: [true, "ফোন নম্বর দিতে হবে"], trim: true },
-    password: { type: String, required: [true, "পাসওয়ার্ড দিতে হবে"], minlength: 6, select: false },
+    email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+    phone: { type: String, unique: true, sparse: true, trim: true },
+    password: {
+      type: String,
+      required: function () { return this.authProvider === "password"; },
+      minlength: 6,
+      select: false,
+    },
+    authProvider: { type: String, enum: ["password", "google"], default: "password" },
+    googleId: { type: String, unique: true, sparse: true, trim: true },
+    isEmailVerified: { type: Boolean, default: false },
+    isPhoneVerified: { type: Boolean, default: false },
 
     // ─── Role ───────────────────────────────────────────────
     role: {
@@ -36,7 +45,7 @@ const userSchema = new mongoose.Schema(
       paymentReference: { type: String, default: null },
       paymentMethod: {
         type: String,
-        enum: ["bkash", "nagad", "rocket", "bank", "cash", null],
+        enum: ["bkash", "nagad", "rocket", "bank", "card", "cash", "demo_card", null],
         default: null,
       },
       paymentStatus: {
@@ -44,6 +53,10 @@ const userSchema = new mongoose.Schema(
         enum: ["unpaid", "pending_approval", "paid", "failed"],
         default: "unpaid",
       },
+      senderNumber: { type: String, default: null },
+      paymentScreenshotUrl: { type: String, default: null },
+      paymentNote: { type: String, default: null },
+      rejectionReason: { type: String, default: null },
       renewalAlertSent: { type: Boolean, default: false },
     },
 
@@ -69,18 +82,22 @@ const userSchema = new mongoose.Schema(
 
 // Hash password before save
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  if (!this.password || !this.isModified("password")) return next();
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
 // Compare password helper
 userSchema.methods.comparePassword = async function (candidate) {
+  if (!this.password) return false;
   return bcrypt.compare(candidate, this.password);
 };
 
 // Auto-set status based on role at creation
 userSchema.pre("validate", function (next) {
+  if (!this.email && !this.phone) {
+    this.invalidate("email", "ইমেইল বা ফোন নম্বর দিতে হবে");
+  }
   if (this.isNew) {
     if (this.role === "boat_owner") this.status = "pending";
     else if (this.role === "manager") this.status = "active";

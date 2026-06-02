@@ -13,11 +13,14 @@ const roomSchema = new mongoose.Schema(
       enum: ["single", "double", "family", "vip", "dormitory"],
       default: "double",
     },
+    acRoomPrice: { type: Number, required: true },
+    nonAcRoomPrice: { type: Number, required: true },
     basePrice: { type: Number, required: true },
     extraPersonPrice: { type: Number, default: 0 },
     maxCapacity: { type: Number, default: 2 },
     description: { type: String, default: "" },
     amenities: [{ type: String }],
+    services: [{ type: String }],
     images: [{ type: String }],
     availability: [
       {

@@ -1,187 +1,186 @@
 'use client';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { subscriptionApi } from '@/lib/api';
-import { useAuthStore } from '@/store/auth.store';
+
 import { useState } from 'react';
-import { PageLoader, Field, InfoCard, Spinner, StatusBadge } from '@/components/ui';
-import { formatMoney, formatDate, daysLeft } from '@/lib/labels';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import type { SubscriptionPlan } from '@/types';
-import { CheckCircle } from 'lucide-react';
+import { CreditCard, Landmark, Smartphone } from 'lucide-react';
+import { subscriptionApi, authApi } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
+import { Field, InfoCard, PageLoader, Spinner } from '@/components/ui';
+import { formatMoney } from '@/lib/labels';
+import type { PaymentMethod, SubscriptionPlan } from '@/types';
+
+const methods: { value: PaymentMethod; label: string; icon: React.ReactNode; instructions: string[] }[] = [
+  {
+    value: 'bkash',
+    label: 'bKash',
+    icon: <Smartphone size={18} />,
+    instructions: ['Send Money: 01700000000', 'Reference: Jolotorongo + your phone', 'Submit transaction ID and sender number.'],
+  },
+  {
+    value: 'nagad',
+    label: 'Nagad',
+    icon: <Smartphone size={18} />,
+    instructions: ['Send Money: 01800000000', 'Reference: Jolotorongo + your phone', 'Submit transaction ID and sender number.'],
+  },
+  {
+    value: 'bank',
+    label: 'Bank',
+    icon: <Landmark size={18} />,
+    instructions: ['Bank: Dutch-Bangla Bank', 'Account: Jolotorongo Ltd - 123456789', 'Submit deposit slip/reference and screenshot.'],
+  },
+  {
+    value: 'card',
+    label: 'Card',
+    icon: <CreditCard size={18} />,
+    instructions: ['Use only gateway transaction/reference ID.', 'Do not submit full card number, CVV, or PIN.', 'Attach gateway receipt screenshot if available.'],
+  },
+];
 
 export default function SubscriptionPage() {
-  const { user, setUser } = useAuthStore();
   const qc = useQueryClient();
-  const isAdmin = user?.role === 'super_admin';
+  const { user, setUser } = useAuthStore();
+  const [planId, setPlanId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('bkash');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [senderNumber, setSenderNumber] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [screenshot, setScreenshot] = useState<File | null>(null);
 
-  const { data: plansData, isLoading } = useQuery({
-    queryKey: ['plans'],
+  const { data, isLoading } = useQuery({
+    queryKey: ['subscription-plans'],
     queryFn: () => subscriptionApi.getPlans(),
   });
-  const { data: pendingData } = useQuery({
-    queryKey: ['pending-subs'],
-    queryFn: () => subscriptionApi.getPending(),
-    enabled: isAdmin,
-  });
 
-  const plans: SubscriptionPlan[] = plansData?.data?.data?.plans || [];
-  const pending = pendingData?.data?.data?.users || [];
+  const plans: SubscriptionPlan[] = data?.data?.data?.plans || [];
+  const selectedPlanId = planId || plans[0]?._id || '';
+  const selected = plans.find((plan) => plan._id === selectedPlanId) || plans[0];
+  const method = methods.find((item) => item.value === paymentMethod)!;
+  const currentStatus = user?.subscription?.paymentStatus;
 
-  const [selected, setSelected] = useState<SubscriptionPlan | null>(null);
-  const [payForm, setPayForm] = useState({ paymentMethod: 'bkash', paymentReference: '' });
-  const [step, setStep] = useState<'plans' | 'pay'>('plans');
+  const purchase = useMutation({
+    mutationFn: async () => {
+      if (!selected?._id) throw new Error('Plan missing');
+      if (!paymentReference.trim()) throw new Error('Transaction/reference ID required');
 
-  const purchaseMutation = useMutation({
-    mutationFn: () => subscriptionApi.purchase({ planId: selected!._id, ...payForm }),
-    onSuccess: async (res) => {
-      toast.success('পেমেন্ট তথ্য জমা হয়েছে! অনুমোদনের জন্য অপেক্ষা করুন।');
-      const me = await import('@/lib/api').then(m => m.authApi.me());
+      const form = new FormData();
+      form.append('planId', selected._id);
+      form.append('paymentMethod', paymentMethod);
+      form.append('paymentReference', paymentReference.trim());
+      form.append('senderNumber', senderNumber.trim());
+      form.append('paymentNote', paymentNote.trim());
+      if (screenshot) form.append('screenshot', screenshot);
+      return subscriptionApi.purchase(form);
+    },
+    onSuccess: async () => {
+      toast.success('পেমেন্ট প্রুফ জমা হয়েছে');
+      const me = await authApi.me();
       setUser(me.data.data.user);
-      qc.invalidateQueries({ queryKey: ['plans'] });
-      setStep('plans');
+      qc.invalidateQueries({ queryKey: ['subscription-plans'] });
     },
     onError: (err: unknown) => {
-      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি হয়েছে');
+      const message =
+        (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message ||
+        (err as { message?: string })?.message ||
+        'পেমেন্ট প্রুফ জমা হয়নি';
+      toast.error(message);
     },
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: (id: string) => subscriptionApi.approve(id),
-    onSuccess: () => { toast.success('সাবস্ক্রিপশন অনুমোদিত!'); qc.invalidateQueries({ queryKey: ['pending-subs'] }); },
-    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: (id: string) => subscriptionApi.reject(id, { reason: 'পেমেন্ট যাচাই ব্যর্থ' }),
-    onSuccess: () => { toast.success('প্রত্যাখ্যান করা হয়েছে।'); qc.invalidateQueries({ queryKey: ['pending-subs'] }); },
   });
 
   if (isLoading) return <PageLoader />;
 
-  const sub = user?.subscription;
-  const active = sub?.isActive && sub?.paymentStatus === 'paid' && sub?.endDate && new Date(sub.endDate) > new Date();
-
   return (
     <div className="page fade-in">
-      <h1 className="font-bold text-slate-800 text-lg mb-4">💳 সাবস্ক্রিপশন</h1>
+      <h1 className="mb-1 text-xl font-bold text-slate-800">সাবস্ক্রিপশন</h1>
+      <p className="mb-4 text-sm text-slate-500">প্ল্যান বাছুন, পেমেন্ট করুন, প্রুফ জমা দিন।</p>
 
-      {/* Current subscription status */}
-      {user?.role === 'boat_owner' && sub && (
-        <div className="card mb-5">
-          <p className="text-xs text-slate-500 mb-2">বর্তমান প্ল্যান</p>
-          <div className="flex justify-between items-center">
-            <div>
-              <p className="font-bold text-slate-800">{sub.planName || 'কোনো প্ল্যান নেই'}</p>
-              {sub.endDate && <p className="text-xs text-slate-500 mt-0.5">মেয়াদ: {formatDate(sub.endDate)} ({daysLeft(sub.endDate)} দিন)</p>}
-            </div>
-            <StatusBadge status={active ? 'active' : sub.paymentStatus || 'unpaid'} />
-          </div>
-          {sub.paymentStatus === 'pending_approval' && (
-            <div className="mt-3">
-              <InfoCard type="info" message="আপনার পেমেন্ট যাচাই হচ্ছে। সুপার অ্যাডমিন শীঘ্রই অনুমোদন করবেন।" />
-            </div>
-          )}
+      {currentStatus === 'pending_approval' && (
+        <div className="mb-4">
+          <InfoCard type="info" message="আপনার পেমেন্ট সুপার অ্যাডমিন যাচাই করছেন।" />
+        </div>
+      )}
+      {currentStatus === 'failed' && (
+        <div className="mb-4">
+          <InfoCard type="warning" message={user?.subscription?.rejectionReason || 'পেমেন্ট প্রত্যাখ্যান হয়েছে। আবার জমা দিন।'} />
         </div>
       )}
 
-      {/* Admin: pending approvals */}
-      {isAdmin && pending.length > 0 && (
-        <div className="mb-6">
-          <h2 className="section-title">⏳ অনুমোদন বাকি ({pending.length})</h2>
-          <div className="flex flex-col gap-3">
-            {pending.map((u: { _id: string; name: string; email: string; phone: string; subscription: { planName: string; paymentMethod: string; paymentReference: string } }) => (
-              <div key={u._id} className="card">
-                <div className="mb-3">
-                  <p className="font-semibold text-slate-800">{u.name}</p>
-                  <p className="text-xs text-slate-500">{u.email} · {u.phone}</p>
-                  <p className="text-xs text-sky-600 mt-1">📦 {u.subscription?.planName} · 💳 {u.subscription?.paymentMethod?.toUpperCase()}</p>
-                  <p className="text-xs text-slate-600">Ref: <span className="font-mono">{u.subscription?.paymentReference}</span></p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => rejectMutation.mutate(u._id)} disabled={rejectMutation.isPending} className="btn btn-outline flex-1 text-red-500 border-red-200 text-xs">
-                    ❌ প্রত্যাখ্যান
-                  </button>
-                  <button onClick={() => approveMutation.mutate(u._id)} disabled={approveMutation.isPending} className="btn btn-success flex-1 text-xs">
-                    {approveMutation.isPending ? <Spinner size="sm" /> : '✅ অনুমোদন'}
-                  </button>
-                </div>
+      <div className="mb-5 grid gap-3">
+        {plans.map((plan) => (
+          <button
+            key={plan._id}
+            type="button"
+            onClick={() => setPlanId(plan._id)}
+            className={`card text-left ${selectedPlanId === plan._id ? 'border-2 border-sky-500 bg-sky-50' : 'border border-slate-100'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-bold text-slate-800">{plan.name}</p>
+                <p className="text-xs text-slate-500">{plan.durationDays} দিন · {plan.maxRooms} rooms · {plan.maxAgents} agents</p>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <p className="font-bold text-sky-700">{formatMoney(plan.price)}</p>
+            </div>
+            {plan.features?.length > 0 && <p className="mt-2 text-xs text-slate-500">{plan.features.join(' · ')}</p>}
+          </button>
+        ))}
+        {plans.length === 0 && <InfoCard type="warning" message="কোনো প্ল্যান নেই। সুপার অ্যাডমিনকে প্ল্যান তৈরি করতে বলুন।" />}
+      </div>
 
-      {/* Plans */}
-      {step === 'plans' && (
-        <div>
-          <h2 className="section-title">সাবস্ক্রিপশন প্ল্যান</h2>
-          <div className="flex flex-col gap-3">
-            {plans.map((plan) => (
-              <div
-                key={plan._id}
-                onClick={() => user?.role === 'boat_owner' && !active && setSelected(plan)}
-                className={`card border-2 transition-all ${
-                  selected?._id === plan._id ? 'border-sky-500 bg-sky-50' : 'border-transparent'
-                } ${user?.role === 'boat_owner' && !active ? 'cursor-pointer' : ''}`}
+      <div className="card">
+        <Field label="পেমেন্ট পদ্ধতি" required>
+          <div className="grid grid-cols-2 gap-2">
+            {methods.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setPaymentMethod(item.value)}
+                className={`flex min-h-0 items-center justify-center gap-2 rounded-xl border py-2 text-sm font-semibold ${
+                  paymentMethod === item.value ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200 text-slate-600'
+                }`}
               >
-                <div className="flex justify-between items-start mb-3">
-                  <div>
-                    <p className="font-bold text-slate-800">{plan.name}</p>
-                    <p className="text-xs text-slate-500">{plan.durationDays} দিন</p>
-                  </div>
-                  <p className="font-bold text-xl text-sky-600">{formatMoney(plan.price)}</p>
-                </div>
-                <ul className="flex flex-col gap-1">
-                  {plan.features.map((f, i) => (
-                    <li key={i} className="flex items-center gap-2 text-xs text-slate-600">
-                      <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                {item.icon}
+                {item.label}
+              </button>
             ))}
           </div>
+        </Field>
 
-          {selected && user?.role === 'boat_owner' && (
-            <button onClick={() => setStep('pay')} className="btn btn-primary btn-full mt-4">
-              &ldquo;{selected.name}&rdquo; প্ল্যান কিনুন →
-            </button>
-          )}
+        <div className="my-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          <p className="mb-2 font-bold text-slate-800">{method.label} instructions</p>
+          {method.instructions.map((line) => (
+            <p key={line}>- {line}</p>
+          ))}
         </div>
-      )}
 
-      {/* Payment form */}
-      {step === 'pay' && selected && (
-        <div className="fade-in">
-          <button onClick={() => setStep('plans')} className="text-sm text-sky-600 mb-4 flex items-center gap-1">← ফিরে যান</button>
-          <div className="card mb-4 bg-sky-50 border border-sky-200">
-            <p className="font-bold text-sky-800">{selected.name}</p>
-            <p className="text-sky-600 text-xl font-bold">{formatMoney(selected.price)}</p>
-            <p className="text-xs text-sky-700">{selected.durationDays} দিনের জন্য</p>
-          </div>
-          <div className="flex flex-col gap-4">
-            <Field label="পেমেন্ট পদ্ধতি / Payment Method" required>
-              <select className="input" value={payForm.paymentMethod} onChange={(e) => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))}>
-                {['bkash', 'nagad', 'rocket', 'bank', 'cash'].map(m => (
-                  <option key={m} value={m}>{m.toUpperCase()}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="ট্রানজেকশন ID / Reference" required>
-              <input className="input" placeholder="TXN123456" value={payForm.paymentReference} onChange={(e) => setPayForm(f => ({ ...f, paymentReference: e.target.value }))} />
-            </Field>
-            <InfoCard type="info" message={`bKash/Nagad নম্বরে পাঠান: 01700-000000। তারপর ট্রানজেকশন ID দিন।`} />
-            <button
-              onClick={() => purchaseMutation.mutate()}
-              disabled={!payForm.paymentReference || purchaseMutation.isPending}
-              className="btn btn-primary btn-full"
-            >
-              {purchaseMutation.isPending ? <Spinner size="sm" /> : 'পেমেন্ট সাবমিট করুন'}
-            </button>
-          </div>
+        <div className="grid gap-3">
+          <Field label="Transaction / Reference ID" required>
+            <input className="input" value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} placeholder="TXN123456" />
+          </Field>
+          <Field label="Sender number / Account number">
+            <input className="input" value={senderNumber} onChange={(event) => setSenderNumber(event.target.value)} placeholder="01XXXXXXXXX" />
+          </Field>
+          <Field label="Screenshot">
+            <input
+              type="file"
+              accept="image/*"
+              className="input"
+              onChange={(event) => setScreenshot(event.target.files?.[0] || null)}
+            />
+          </Field>
+          <Field label="Note">
+            <textarea className="input" rows={3} value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} placeholder="Bank branch, sender name, or extra info" />
+          </Field>
         </div>
-      )}
+
+        <button
+          type="button"
+          disabled={!selected || !paymentReference || purchase.isPending}
+          onClick={() => purchase.mutate()}
+          className="btn btn-primary btn-full mt-4"
+        >
+          {purchase.isPending ? <Spinner size="sm" /> : 'সুপার অ্যাডমিনে পাঠান'}
+        </button>
+      </div>
     </div>
   );
 }

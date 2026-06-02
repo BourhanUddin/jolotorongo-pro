@@ -47,6 +47,8 @@ export default function RevenuePage() {
   const bookings: Booking[] = bookingData?.data?.data?.bookings || [];
   const expenses: Expense[] = expenseData?.data?.data?.expenses || [];
   const revenue = report?.totalRevenue || 0;
+  const grossRevenue = report?.grossRevenue || revenue;
+  const agentCommission = report?.agentCommission || 0;
   const expense = report?.totalExpense || 0;
   const profit = report?.netProfit || 0;
 
@@ -88,7 +90,9 @@ export default function RevenuePage() {
       ) : (
         <>
           <section className="grid gap-3">
-            <MetricCard title="Revenue" value={formatMoney(revenue)} icon={<TrendingUp size={22} />} tone="bg-emerald-100 text-emerald-700" />
+            <MetricCard title="Gross Revenue" value={formatMoney(grossRevenue)} icon={<TrendingUp size={22} />} tone="bg-emerald-100 text-emerald-700" />
+            <MetricCard title="Agent Commission" value={formatMoney(agentCommission)} icon={<WalletCards size={22} />} tone="bg-amber-100 text-amber-700" />
+            <MetricCard title="Net Revenue" value={formatMoney(revenue)} icon={<TrendingUp size={22} />} tone="bg-emerald-100 text-emerald-700" />
             <MetricCard title="Expenses" value={formatMoney(expense)} icon={<WalletCards size={22} />} tone="bg-red-100 text-red-700" />
             <MetricCard title="Net Profit" value={formatMoney(profit)} icon={<BarChart3 size={22} />} tone="bg-[#dfd0ff] text-[#32157c]" />
           </section>

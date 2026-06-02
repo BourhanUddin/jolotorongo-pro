@@ -16,6 +16,7 @@ export default function BottomNav() {
   const ownerLinks = [
     { href: '/dashboard',  icon: BedDouble,       label: 'Fleet' },
     { href: '/bookings',   icon: CalendarCheck,   label: 'Bookings' },
+    { href: '/agents',     icon: Users,           label: 'Team' },
     { href: '/finance',    icon: BarChart2,        label: 'Finance' },
     { href: '/profile',    icon: Users,           label: 'Profile' },
   ];

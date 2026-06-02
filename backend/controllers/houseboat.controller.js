@@ -1,19 +1,55 @@
 const Houseboat = require("../models/Houseboat");
+const User = require("../models/User");
 const { AppError, catchAsync } = require("../utils/appError");
+const { pushNotification } = require("../utils/notification");
+const { requiredString, optionalString, numberValue, objectId, emailValue } = require("../utils/validation");
+
+// GET /api/houseboat/fleet — active managed vessels for dropdowns
+const getFleetHouseboats = catchAsync(async (req, res) => {
+  let houseboats = [];
+
+  if (req.user.role === "boat_owner") {
+    houseboats = await Houseboat.find({ ownerId: req.user._id, isOperational: true }).sort("name");
+  } else if (req.user.role === "manager" && req.user.joinedHouseboatId) {
+    const houseboat = await Houseboat.findOne({ _id: req.user.joinedHouseboatId, isOperational: true });
+    houseboats = houseboat ? [houseboat] : [];
+  }
+
+  const selectedHouseboatId = houseboats[0]?._id || null;
+  res.status(200).json({
+    success: true,
+    data: {
+      selectedHouseboatId,
+      houseboats: houseboats.map((boat) => ({
+        ...boat.toObject(),
+        selected: String(boat._id) === String(selectedHouseboatId),
+      })),
+    },
+  });
+});
 
 // GET /api/houseboat/my  — owner gets own houseboat
 const getMyHouseboat = catchAsync(async (req, res, next) => {
   const houseboat = await Houseboat.findOne({ ownerId: req.user._id })
     .populate("approvedAgents", "name email phone status");
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
-  res.status(200).json({ success: true, data: { houseboat } });
+  const managers = await User.find({
+    role: "manager",
+    joinedHouseboatId: houseboat._id,
+  }).select("-password").sort("-createdAt");
+
+  res.status(200).json({ success: true, data: { houseboat, managers } });
 });
 
 // PATCH /api/houseboat/my  — owner updates own houseboat
 const updateMyHouseboat = catchAsync(async (req, res, next) => {
-  const allowed = ["name", "location", "logoUrl", "holdTimeoutMinutes"];
   const updates = {};
-  allowed.forEach((k) => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+  if (req.body.name !== undefined) updates.name = requiredString(req.body.name, "হাউসবোট নাম", 120);
+  if (req.body.location !== undefined) updates.location = optionalString(req.body.location, 160) || "Tanguar Haor";
+  if (req.body.logoUrl !== undefined) updates.logoUrl = optionalString(req.body.logoUrl, 500) || null;
+  if (req.body.holdTimeoutMinutes !== undefined) {
+    updates.holdTimeoutMinutes = numberValue(req.body.holdTimeoutMinutes, "হোল্ড টাইমআউট", { min: 5, max: 1440, integer: true });
+  }
 
   const houseboat = await Houseboat.findOneAndUpdate(
     { ownerId: req.user._id },
@@ -26,6 +62,7 @@ const updateMyHouseboat = catchAsync(async (req, res, next) => {
 
 // DELETE /api/houseboat/agents/:agentId  — remove an agent from houseboat
 const removeAgent = catchAsync(async (req, res, next) => {
+  objectId(req.params.agentId, "এজেন্ট আইডি");
   const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
 
@@ -34,13 +71,53 @@ const removeAgent = catchAsync(async (req, res, next) => {
     { $pull: { approvedAgents: req.params.agentId } }
   );
 
-  const User = require("../models/User");
   await User.updateOne(
-    { _id: req.params.agentId },
+    { _id: req.params.agentId, joinedHouseboatId: houseboat._id },
     { joinedHouseboatId: null }
   );
 
   res.status(200).json({ success: true, message: "এজেন্ট সরানো হয়েছে।" });
 });
 
-module.exports = { getMyHouseboat, updateMyHouseboat, removeAgent };
+// POST /api/houseboat/managers — owner creates manager for own houseboat
+const createManager = catchAsync(async (req, res, next) => {
+  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
+
+  const name = requiredString(req.body.name, "ম্যানেজারের নাম", 120);
+  const email = emailValue(req.body.email);
+  const phone = optionalString(req.body.phone, 40);
+  const password = requiredString(req.body.password, "পাসওয়ার্ড", 128);
+
+  const duplicateFilter = phone ? { $or: [{ email }, { phone }] } : { email };
+  const existing = await User.findOne(duplicateFilter);
+  if (existing) return next(new AppError("এই ইমেইল বা ফোন ইতিমধ্যে নিবন্ধিত।", 400));
+
+  const manager = await User.create({
+    name,
+    email,
+    phone: phone || undefined,
+    password,
+    role: "manager",
+    status: "active",
+    isApprovedByAdmin: true,
+    joinedHouseboatId: houseboat._id,
+  });
+
+  await pushNotification(
+    manager._id,
+    `"${houseboat.name}" হাউসবোটে আপনার ম্যানেজার অ্যাকাউন্ট তৈরি হয়েছে।`,
+    "success"
+  );
+
+  const safeManager = manager.toObject();
+  delete safeManager.password;
+
+  res.status(201).json({
+    success: true,
+    message: "ম্যানেজার তৈরি হয়েছে।",
+    data: { manager: safeManager },
+  });
+});
+
+module.exports = { getFleetHouseboats, getMyHouseboat, updateMyHouseboat, removeAgent, createManager };

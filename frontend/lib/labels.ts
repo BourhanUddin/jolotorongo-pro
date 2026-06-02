@@ -15,7 +15,6 @@ export const t = {
   bookings: 'বুকিং / Bookings',
   expenses: 'ব্যয় / Expenses',
   agents: 'এজেন্ট / Agents',
-  subscription: 'সাবস্ক্রিপশন',
   profile: 'প্রোফাইল / Profile',
   admin: 'অ্যাডমিন',
   // Status

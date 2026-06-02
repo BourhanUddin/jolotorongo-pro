@@ -1,10 +1,14 @@
 import axios from 'axios';
+import { offlineCache } from './offline-cache';
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
+  baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 });
+
+const cacheKey = (config: { baseURL?: string; url?: string; params?: unknown }) =>
+  `${config.baseURL || ''}${config.url || ''}?${JSON.stringify(config.params || {})}`;
 
 // Attach JWT token from localStorage
 api.interceptors.request.use((config) => {
@@ -17,12 +21,31 @@ api.interceptors.request.use((config) => {
 
 // Handle 401 — redirect to login
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
+  async (res) => {
+    if (res.config.method?.toLowerCase() === 'get') {
+      await offlineCache.set(cacheKey(res.config), res.data);
+    }
+    return res;
+  },
+  async (err) => {
     if (err.response?.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('jt_token');
       localStorage.removeItem('jt_user');
+      document.cookie = 'jt_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax';
       window.location.href = '/login';
+    }
+    if (!err.response && err.config?.method?.toLowerCase() === 'get') {
+      const cached = await offlineCache.get(cacheKey(err.config));
+      if (cached) {
+        return {
+          data: cached,
+          status: 200,
+          statusText: 'Offline cache',
+          headers: {},
+          config: err.config,
+          request: err.request,
+        };
+      }
     }
     return Promise.reject(err);
   }
@@ -34,6 +57,10 @@ export default api;
 export const authApi = {
   register: (d: object) => api.post('/auth/register', d),
   login:    (d: object) => api.post('/auth/login', d),
+  requestOtp: (d: object) => api.post('/auth/otp/request', d),
+  verifyOtp:  (d: object) => api.post('/auth/otp/verify', d),
+  otpLogin:   (d: object) => api.post('/auth/otp/login', d),
+  google:     (d: object) => api.post('/auth/google', d),
   me:       ()          => api.get('/auth/me'),
   changePassword: (d: object) => api.patch('/auth/change-password', d),
   notifications:  ()          => api.get('/auth/notifications'),
@@ -41,9 +68,10 @@ export const authApi = {
 };
 
 export const subscriptionApi = {
-  getPlans:         ()          => api.get('/subscriptions/plans'),
-  purchase:         (d: object) => api.post('/subscriptions/purchase', d),
-  getPending:       ()          => api.get('/subscriptions/pending'),
+  getPlans:         () => api.get('/subscriptions/plans'),
+  purchase:         (d: object | FormData) =>
+    api.post('/subscriptions/purchase', d, d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
+  getPending:       () => api.get('/subscriptions/pending'),
   approve:          (id: string) => api.patch(`/subscriptions/${id}/approve`),
   reject:           (id: string, d: object) => api.patch(`/subscriptions/${id}/reject`, d),
   createPlan:       (d: object) => api.post('/subscriptions/plans', d),
@@ -63,7 +91,7 @@ export const agentApi = {
 };
 
 export const roomApi = {
-  list:           ()          => api.get('/rooms'),
+  list:           (params?: { houseboatId?: string }) => api.get('/rooms', { params }),
   get:            (id: string) => api.get(`/rooms/${id}`),
   create:         (d: object | FormData) => api.post('/rooms', d, d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
   update:         (id: string, d: object | FormData) => api.patch(`/rooms/${id}`, d, d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
@@ -87,8 +115,17 @@ export const bookingRequestApi = {
   create:   (d: object) => api.post('/booking-requests', d),
   my:       () => api.get('/booking-requests/my'),
   incoming: () => api.get('/booking-requests/incoming'),
+  paymentConfirmed: (id: string) => api.patch(`/booking-requests/${id}/payment-confirmed`),
   approve:  (id: string, d: object = {}) => api.patch(`/booking-requests/${id}/approve`, d),
   reject:   (id: string, d: object = {}) => api.patch(`/booking-requests/${id}/reject`, d),
+};
+
+export const tourApi = {
+  list:   (params?: object) => api.get('/tours', { params }),
+  matrix: (params?: object) => api.get('/tours/matrix', { params }),
+  create: (d: object) => api.post('/tours', d),
+  update: (id: string, d: object) => api.patch(`/tours/${id}`, d),
+  delete: (id: string) => api.delete(`/tours/${id}`),
 };
 
 export const expenseApi = {
@@ -114,7 +151,9 @@ export const adminApi = {
 };
 
 export const houseboatApi = {
+  fleet:       ()                    => api.get('/houseboat/fleet'),
   getMy:       ()                    => api.get('/houseboat/my'),
   updateMy:    (d: object)           => api.patch('/houseboat/my', d),
+  createManager: (d: object)         => api.post('/houseboat/managers', d),
   removeAgent: (agentId: string)     => api.delete(`/houseboat/agents/${agentId}`),
 };

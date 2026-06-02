@@ -46,24 +46,25 @@ const restrictTo = (...roles) =>
 const requireActiveSubscription = (req, res, next) => {
   const user = req.user;
 
-  if (user.role !== "boat_owner") return next(); // agents/super_admin pass through
+  if (user.role !== "boat_owner") return next();
 
   const sub = user.subscription;
   const now = new Date();
+  const active =
+    sub?.isActive &&
+    sub?.paymentStatus === "paid" &&
+    sub?.endDate &&
+    new Date(sub.endDate) > now;
 
-  if (
-    !sub ||
-    !sub.isActive ||
-    sub.paymentStatus !== "paid" ||
-    (sub.endDate && new Date(sub.endDate) < now)
-  ) {
+  if (!active) {
     return next(
       new AppError(
-        "আপনার সাবস্ক্রিপশন সক্রিয় নেই। অনুগ্রহ করে একটি প্ল্যান কিনুন।",
+        "আপনার সাবস্ক্রিপশন সক্রিয় নয়। পেমেন্ট প্রুফ জমা দিন এবং সুপার অ্যাডমিন অনুমোদনের জন্য অপেক্ষা করুন।",
         403
       )
     );
   }
+
   next();
 };
 

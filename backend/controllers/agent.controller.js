@@ -3,6 +3,7 @@ const Houseboat = require("../models/Houseboat");
 const JoinRequest = require("../models/JoinRequest");
 const { AppError, catchAsync } = require("../utils/appError");
 const { pushNotification } = require("../utils/notification");
+const { objectId, optionalString } = require("../utils/validation");
 
 // ──────────────────────────────────────────────────────────────
 // SUPER ADMIN — Verify / Suspend Agents
@@ -21,6 +22,7 @@ const getUnverifiedAgents = catchAsync(async (req, res) => {
 
 // PATCH /api/agents/:agentId/verify
 const verifyAgent = catchAsync(async (req, res, next) => {
+  objectId(req.params.agentId, "এজেন্ট আইডি");
   const agent = await User.findById(req.params.agentId);
   if (!agent || agent.role !== "agent") {
     return next(new AppError("এজেন্ট পাওয়া যায়নি।", 404));
@@ -41,6 +43,7 @@ const verifyAgent = catchAsync(async (req, res, next) => {
 
 // PATCH /api/agents/:agentId/suspend
 const suspendAgent = catchAsync(async (req, res, next) => {
+  objectId(req.params.agentId, "এজেন্ট আইডি");
   const agent = await User.findById(req.params.agentId);
   if (!agent || agent.role !== "agent") {
     return next(new AppError("এজেন্ট পাওয়া যায়নি।", 404));
@@ -63,7 +66,7 @@ const suspendAgent = catchAsync(async (req, res, next) => {
 const listHouseboats = catchAsync(async (req, res) => {
   const houseboats = await Houseboat.find({ isOperational: true })
     .populate("ownerId", "name phone")
-    .select("name location logoUrl ownerId approvedAgents")
+    .select("name location logoUrl ownerId")
     .sort("name");
 
   res.status(200).json({ success: true, data: { count: houseboats.length, houseboats } });
@@ -81,6 +84,7 @@ const sendJoinRequest = catchAsync(async (req, res, next) => {
   }
 
   const { houseboatId, message } = req.body;
+  objectId(houseboatId, "হাউসবোট আইডি");
   const houseboat = await Houseboat.findById(houseboatId).populate("ownerId", "_id name");
 
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
@@ -103,7 +107,7 @@ const sendJoinRequest = catchAsync(async (req, res, next) => {
     agentId: agent._id,
     houseboatId,
     ownerId: houseboat.ownerId._id,
-    message: message || "",
+    message: optionalString(message, 500),
   });
 
   await pushNotification(
@@ -149,18 +153,39 @@ const getIncomingJoinRequests = catchAsync(async (req, res) => {
 
 // PATCH /api/agents/join-requests/:requestId/approve
 const approveJoinRequest = catchAsync(async (req, res, next) => {
+  objectId(req.params.requestId, "আবেদন আইডি");
   const joinReq = await JoinRequest.findById(req.params.requestId).populate("agentId");
   if (!joinReq) return next(new AppError("আবেদন পাওয়া যায়নি।", 404));
+  if (joinReq.status !== "pending") return next(new AppError("শুধু পেন্ডিং আবেদন অনুমোদন করা যাবে।", 400));
 
   // Ensure this owner owns the houseboat
   const houseboat = await Houseboat.findById(joinReq.houseboatId);
   if (String(houseboat.ownerId) !== String(req.user._id)) {
     return next(new AppError("আপনার এই অনুমতি নেই।", 403));
   }
+  if (
+    joinReq.agentId.joinedHouseboatId &&
+    String(joinReq.agentId.joinedHouseboatId) !== String(houseboat._id)
+  ) {
+    return next(new AppError("এই এজেন্ট ইতিমধ্যে অন্য হাউসবোটে অনুমোদিত।", 409));
+  }
 
   joinReq.status = "approved";
   joinReq.reviewedAt = new Date();
   await joinReq.save();
+
+  await JoinRequest.updateMany(
+    {
+      _id: { $ne: joinReq._id },
+      agentId: joinReq.agentId._id,
+      status: "pending",
+    },
+    {
+      status: "rejected",
+      reviewedAt: new Date(),
+      reviewNote: "এজেন্ট অন্য হাউসবোটে অনুমোদিত হয়েছে।",
+    }
+  );
 
   // Link agent to houseboat
   await User.findByIdAndUpdate(joinReq.agentId._id, {
@@ -182,8 +207,10 @@ const approveJoinRequest = catchAsync(async (req, res, next) => {
 // PATCH /api/agents/join-requests/:requestId/reject
 const rejectJoinRequest = catchAsync(async (req, res, next) => {
   const { reason } = req.body;
+  objectId(req.params.requestId, "আবেদন আইডি");
   const joinReq = await JoinRequest.findById(req.params.requestId).populate("agentId");
   if (!joinReq) return next(new AppError("আবেদন পাওয়া যায়নি।", 404));
+  if (joinReq.status !== "pending") return next(new AppError("শুধু পেন্ডিং আবেদন প্রত্যাখ্যান করা যাবে।", 400));
 
   const houseboat = await Houseboat.findById(joinReq.houseboatId);
   if (String(houseboat.ownerId) !== String(req.user._id)) {
@@ -192,7 +219,7 @@ const rejectJoinRequest = catchAsync(async (req, res, next) => {
 
   joinReq.status = "rejected";
   joinReq.reviewedAt = new Date();
-  joinReq.reviewNote = reason || "";
+  joinReq.reviewNote = optionalString(reason, 500);
   await joinReq.save();
 
   await pushNotification(

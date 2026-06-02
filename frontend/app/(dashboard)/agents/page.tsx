@@ -1,12 +1,12 @@
 'use client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { agentApi, bookingRequestApi, roomApi } from '@/lib/api';
+import { agentApi, bookingRequestApi, houseboatApi, roomApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useState } from 'react';
 import { PageLoader, EmptyState, StatusBadge, Modal, Field, Spinner, InfoCard } from '@/components/ui';
 import toast from 'react-hot-toast';
 import type { Houseboat, User, JoinRequest, BookingRequest, Room } from '@/types';
-import { Check, X, CalendarCheck } from 'lucide-react';
+import { Check, X, CalendarCheck, Plus, UserRoundPlus } from 'lucide-react';
 
 const addOneDay = (date: string) => {
   if (!date) return '';
@@ -37,10 +37,18 @@ export default function AgentsPage() {
 // ─── Boat Owner: see incoming join requests ───────────────────
 function OwnerAgentsView() {
   const qc = useQueryClient();
+  const [showManagerModal, setShowManagerModal] = useState(false);
+  const [managerName, setManagerName] = useState('');
+  const [managerEmail, setManagerEmail] = useState('');
+  const [managerPhone, setManagerPhone] = useState('');
+  const [managerPassword, setManagerPassword] = useState('');
   const { data, isLoading } = useQuery({ queryKey: ['incoming-requests'], queryFn: () => agentApi.incomingRequests() });
   const { data: bookingReqData, isLoading: bookingReqLoading } = useQuery({ queryKey: ['incoming-booking-requests'], queryFn: () => bookingRequestApi.incoming() });
+  const { data: teamData, isLoading: teamLoading } = useQuery({ queryKey: ['owner-team'], queryFn: () => houseboatApi.getMy() });
   const requests: JoinRequest[] = data?.data?.data?.requests || [];
   const bookingRequests: BookingRequest[] = bookingReqData?.data?.data?.requests || [];
+  const managers: User[] = teamData?.data?.data?.managers || [];
+  const approvedAgents: User[] = (teamData?.data?.data?.houseboat?.approvedAgents || []).filter((agent: string | User): agent is User => typeof agent === 'object');
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => agentApi.approveRequest(id),
@@ -70,11 +78,81 @@ function OwnerAgentsView() {
     },
   });
 
-  if (isLoading || bookingReqLoading) return <PageLoader />;
+  const createManager = useMutation({
+    mutationFn: () => houseboatApi.createManager({
+      name: managerName,
+      email: managerEmail,
+      phone: managerPhone,
+      password: managerPassword,
+    }),
+    onSuccess: () => {
+      toast.success('ম্যানেজার তৈরি হয়েছে');
+      qc.invalidateQueries({ queryKey: ['owner-team'] });
+      setShowManagerModal(false);
+      setManagerName('');
+      setManagerEmail('');
+      setManagerPhone('');
+      setManagerPassword('');
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+  });
+
+  if (isLoading || bookingReqLoading || teamLoading) return <PageLoader />;
 
   return (
     <div className="page fade-in">
-      <h1 className="font-bold text-slate-800 text-lg mb-4">🤝 এজেন্ট রিকোয়েস্ট</h1>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div>
+          <h1 className="font-bold text-slate-800 text-lg">🤝 টিম ম্যানেজমেন্ট</h1>
+          <p className="text-xs text-slate-500">এজেন্ট রিকোয়েস্ট ও ম্যানেজার অ্যাকাউন্ট</p>
+        </div>
+        <button onClick={() => setShowManagerModal(true)} className="btn btn-primary text-xs px-3">
+          <Plus size={14} /> ম্যানেজার
+        </button>
+      </div>
+
+      <div className="mb-5">
+        <h2 className="section-title">🧭 ম্যানেজার</h2>
+        {managers.length === 0 ? (
+          <div className="card text-sm text-slate-500">এখনো কোনো ম্যানেজার নেই।</div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {managers.map((manager) => (
+              <div key={manager._id} className="card">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-800">{manager.name}</p>
+                    <p className="text-xs text-slate-500">{manager.email}</p>
+                    <p className="text-xs text-slate-500">{manager.phone || 'ফোন নেই'}</p>
+                  </div>
+                  <StatusBadge status={manager.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {approvedAgents.length > 0 && (
+        <div className="mb-5">
+          <h2 className="section-title">✅ অনুমোদিত এজেন্ট</h2>
+          <div className="flex flex-col gap-3">
+            {approvedAgents.map((agent) => (
+              <div key={agent._id} className="card">
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <p className="font-bold text-slate-800">{agent.name}</p>
+                    <p className="text-xs text-slate-500">{agent.email}</p>
+                    <p className="text-xs text-slate-500">{agent.phone || 'ফোন নেই'}</p>
+                  </div>
+                  <StatusBadge status={agent.status} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {bookingRequests.length > 0 && (
         <div className="mb-5">
           <h2 className="section-title">📩 বুকিং রিকোয়েস্ট</h2>
@@ -91,6 +169,9 @@ function OwnerAgentsView() {
                       <p className="text-xs text-slate-500">রুম {room?.roomNumber || '—'} · {r.guestCount} জন</p>
                       <p className="text-xs text-slate-500">{new Date(r.tripDates.checkIn).toLocaleDateString('bn-BD')} → {new Date(r.tripDates.checkOut).toLocaleDateString('bn-BD')}</p>
                       <p className="text-xs text-slate-400">এজেন্ট: {agent?.name || '—'}</p>
+                      <p className="text-xs text-slate-600 mt-2">গ্রাহক: {r.customerName || '—'} · {r.customerPhone || '—'}</p>
+                      {r.customerAddress && <p className="text-xs text-slate-500">ঠিকানা: {r.customerAddress}</p>}
+                      {r.note && <p className="text-xs text-slate-500 mt-1">নোট: {r.note}</p>}
                     </div>
                     <div className="text-right">
                       <StatusBadge status={r.status} />
@@ -145,6 +226,36 @@ function OwnerAgentsView() {
           })}
         </div>
       )}
+
+      <Modal open={showManagerModal} onClose={() => setShowManagerModal(false)} title="ম্যানেজার তৈরি করুন">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!managerName.trim() || !managerEmail.trim() || !managerPassword.trim()) {
+              toast.error('নাম, ইমেইল, পাসওয়ার্ড দরকার');
+              return;
+            }
+            createManager.mutate();
+          }}
+        >
+          <Field label="নাম" required>
+            <input className="input" value={managerName} onChange={(e) => setManagerName(e.target.value)} placeholder="ম্যানেজারের নাম" />
+          </Field>
+          <Field label="ইমেইল" required>
+            <input className="input" type="email" value={managerEmail} onChange={(e) => setManagerEmail(e.target.value)} placeholder="manager@example.com" />
+          </Field>
+          <Field label="ফোন">
+            <input className="input" value={managerPhone} onChange={(e) => setManagerPhone(e.target.value)} placeholder="017..." />
+          </Field>
+          <Field label="অস্থায়ী পাসওয়ার্ড" required>
+            <input className="input" type="password" value={managerPassword} onChange={(e) => setManagerPassword(e.target.value)} placeholder="কমপক্ষে ৬ অক্ষর" />
+          </Field>
+          <button disabled={createManager.isPending} className="btn btn-primary btn-full">
+            {createManager.isPending ? <Spinner size="sm" /> : <><UserRoundPlus size={16} /> ম্যানেজার তৈরি</>}
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }
@@ -160,22 +271,39 @@ function AgentHouseboatView() {
   const [checkOut, setCheckOut] = useState('');
   const [roomId, setRoomId] = useState('');
   const [guestCount, setGuestCount] = useState('1');
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
   const isVerified = user?.isApprovedByAdmin && user?.status === 'active';
 
   const { data, isLoading } = useQuery({ queryKey: ['houseboats'], queryFn: () => agentApi.listHouseboats() });
   const { data: myReqData } = useQuery({ queryKey: ['my-join-requests'], queryFn: () => agentApi.myJoinRequests() });
   const { data: myBookingReqData } = useQuery({ queryKey: ['my-booking-requests'], queryFn: () => bookingRequestApi.my(), enabled: isVerified });
-  const { data: availabilityData } = useQuery({
-    queryKey: ['boat-room-availability', selected?._id, checkIn, checkOut],
-    queryFn: () => roomApi.availability(selected!._id, checkIn, checkOut),
-    enabled: !!selected?._id && !!checkIn && !!checkOut && isVerified,
-  });
 
   const houseboats: Houseboat[] = data?.data?.data?.houseboats || [];
   const myRequests: JoinRequest[] = myReqData?.data?.data?.requests || [];
   const myBookingRequests: BookingRequest[] = myBookingReqData?.data?.data?.requests || [];
-  const availableRooms: Room[] = availabilityData?.data?.data?.rooms || [];
-  const joinedId = typeof user?.joinedHouseboatId === 'object' ? user?.joinedHouseboatId?._id : user?.joinedHouseboatId;
+  const approvedJoin = myRequests.find((r) => r.status === 'approved');
+  const approvedJoinBoatId = approvedJoin
+    ? typeof approvedJoin.houseboatId === 'object' ? approvedJoin.houseboatId._id : approvedJoin.houseboatId
+    : null;
+  const joinedId = (typeof user?.joinedHouseboatId === 'object' ? user?.joinedHouseboatId?._id : user?.joinedHouseboatId) || approvedJoinBoatId;
+  const { data: availabilityData } = useQuery({
+    queryKey: ['boat-room-availability', selected?._id, checkIn, checkOut],
+    queryFn: () => roomApi.availability(selected!._id, checkIn, checkOut),
+    enabled: !!selected?._id && selected?._id === joinedId && !!checkIn && !!checkOut && isVerified,
+  });
+  const rooms: Room[] = availabilityData?.data?.data?.rooms || [];
+  const availableRooms = rooms.filter((room) => room.availabilityState === 'available');
+
+  const joinRequestMutation = useMutation({
+    mutationFn: (houseboatId: string) => agentApi.sendJoinRequest({ houseboatId }),
+    onSuccess: () => {
+      toast.success('যোগ দেওয়ার আবেদন পাঠানো হয়েছে');
+      qc.invalidateQueries({ queryKey: ['my-join-requests'] });
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+  });
 
   const bookingRequestMutation = useMutation({
     mutationFn: () => bookingRequestApi.create({
@@ -184,6 +312,9 @@ function AgentHouseboatView() {
       checkIn,
       checkOut,
       guestCount: Number(guestCount) || 1,
+      customerName,
+      customerPhone,
+      customerAddress,
       note: message,
     }),
     onSuccess: () => {
@@ -192,6 +323,9 @@ function AgentHouseboatView() {
       setShowModal(false);
       setMessage('');
       setRoomId('');
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerAddress('');
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
   });
@@ -213,6 +347,9 @@ function AgentHouseboatView() {
     setCheckOut('');
     setRoomId('');
     setGuestCount('1');
+    setCustomerName('');
+    setCustomerPhone('');
+    setCustomerAddress('');
     setMessage('');
     setShowModal(true);
   };
@@ -242,6 +379,7 @@ function AgentHouseboatView() {
             const bookingReq = getBookingStatus(h._id);
             const owner = typeof h.ownerId === 'object' ? h.ownerId as User : null;
             const isJoined = joinedId === h._id;
+            const canRequestJoin = isVerified && !joinedId && (!req || req.status === 'rejected');
             return (
               <div key={h._id} className="card">
                 <div className="flex justify-between items-start mb-2">
@@ -249,7 +387,6 @@ function AgentHouseboatView() {
                     <p className="font-bold text-slate-800">{h.name}</p>
                     <p className="text-xs text-slate-500">📍 {h.location}</p>
                     {owner && <p className="text-xs text-slate-500">👤 {owner.name} · {owner.phone}</p>}
-                    <p className="text-xs text-slate-400">👥 {h.approvedAgents?.length || 0} জন এজেন্ট</p>
                   </div>
                   {isJoined ? (
                     <span className="badge badge-green">যুক্ত আছি</span>
@@ -257,10 +394,24 @@ function AgentHouseboatView() {
                     <StatusBadge status={req.status} />
                   ) : null}
                 </div>
-                {isVerified && (
-                  <button onClick={() => openBookingRequest(h)} disabled={!!bookingReq} className="btn btn-outline btn-full text-sm text-sky-600 border-sky-200 mt-2">
-                    <CalendarCheck size={14} /> {bookingReq ? 'বুকিং রিকোয়েস্ট পেন্ডিং' : 'বুকিং রিকোয়েস্ট পাঠান'}
+                {isVerified && isJoined && (
+                  <>
+                    {bookingReq && <p className="text-xs text-amber-600 mb-2">এই বোটে একটি বুকিং রিকোয়েস্ট পেন্ডিং আছে।</p>}
+                    <button onClick={() => openBookingRequest(h)} className="btn btn-outline btn-full text-sm text-sky-600 border-sky-200 mt-2">
+                      <CalendarCheck size={14} /> রুম দেখে বুকিং রিকোয়েস্ট পাঠান
+                    </button>
+                  </>
+                )}
+                {canRequestJoin && (
+                  <button onClick={() => joinRequestMutation.mutate(h._id)} disabled={joinRequestMutation.isPending} className="btn btn-primary btn-full text-sm mt-2">
+                    {joinRequestMutation.isPending ? <Spinner size="sm" /> : 'এজেন্ট হতে আবেদন পাঠান'}
                   </button>
+                )}
+                {isVerified && !isJoined && req?.status === 'pending' && (
+                  <p className="text-xs text-amber-600 mt-2">মালিকের অনুমোদনের জন্য অপেক্ষা করছে।</p>
+                )}
+                {isVerified && joinedId && !isJoined && (
+                  <p className="text-xs text-slate-500 mt-2">বুকিং রিকোয়েস্ট পাঠাতে এই বোটের অনুমোদিত এজেন্ট হতে হবে।</p>
                 )}
               </div>
             );
@@ -283,29 +434,34 @@ function AgentHouseboatView() {
           <Field label="অতিথি সংখ্যা">
             <input type="number" className="input" min="1" value={guestCount} onChange={e => setGuestCount(e.target.value)} />
           </Field>
+          <Field label="গ্রাহকের নাম" required>
+            <input className="input" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="যাত্রীর নাম" />
+          </Field>
+          <Field label="গ্রাহকের ফোন" required>
+            <input className="input" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="মোবাইল নম্বর" />
+          </Field>
+          <Field label="গ্রাহকের ঠিকানা">
+            <input className="input" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="ঐচ্ছিক" />
+          </Field>
           {checkIn && (
             <Field label="উপলব্ধ রুম" required>
               <div className="flex flex-col gap-2">
                 {availableRooms.length === 0 ? (
                   <p className="text-sm text-slate-500">এই তারিখে কোনো রুম পাওয়া যায়নি</p>
-                ) : availableRooms.map(room => {
-                  const selectable = room.availabilityState === 'available';
-                  return (
+                ) : availableRooms.map(room => (
                     <button
                       type="button"
                       key={room._id}
-                      disabled={!selectable}
                       onClick={() => setRoomId(room._id)}
-                      className={`rounded-lg border p-3 text-left ${roomId === room._id ? 'border-sky-500 bg-sky-50' : selectable ? 'border-emerald-200 bg-emerald-50' : 'border-red-200 bg-red-50 opacity-70'}`}
+                      className={`rounded-lg border p-3 text-left ${roomId === room._id ? 'border-sky-500 bg-sky-50' : 'border-emerald-200 bg-emerald-50'}`}
                     >
                       <div className="flex justify-between gap-2">
                         <span className="font-semibold text-sm">রুম {room.roomNumber} ({room.roomType})</span>
                         <span className="font-bold text-sm">৳{room.basePrice.toLocaleString()}</span>
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">{room.maxCapacity} জন · {room.availabilityState === 'available' ? 'উপলব্ধ' : 'অনুপলব্ধ'}</p>
+                      <p className="text-xs text-slate-500 mt-1">{room.maxCapacity} জন · উপলব্ধ</p>
                     </button>
-                  );
-                })}
+                ))}
               </div>
             </Field>
           )}
@@ -314,7 +470,7 @@ function AgentHouseboatView() {
           </Field>
           <div className="flex gap-2">
             <button onClick={() => setShowModal(false)} className="btn btn-outline flex-1">বাতিল</button>
-            <button onClick={() => bookingRequestMutation.mutate()} disabled={bookingRequestMutation.isPending || !roomId || !checkIn} className="btn btn-primary flex-1">
+            <button onClick={() => bookingRequestMutation.mutate()} disabled={bookingRequestMutation.isPending || !roomId || !checkIn || !customerName.trim() || !customerPhone.trim()} className="btn btn-primary flex-1">
               {bookingRequestMutation.isPending ? <Spinner size="sm" /> : 'রিকোয়েস্ট পাঠান'}
             </button>
           </div>

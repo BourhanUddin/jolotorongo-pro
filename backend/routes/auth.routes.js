@@ -2,12 +2,17 @@ const express = require("express");
 const router = express.Router();
 const {
   register, login, getMe, changePassword,
+  requestOtp, confirmOtp, otpLogin, googleAuth,
   getNotifications, markAllNotificationsRead,
 } = require("../controllers/auth.controller");
 const { protect } = require("../middleware/auth.middleware");
 
 router.post("/register", register);
 router.post("/login", login);
+router.post("/otp/request", requestOtp);
+router.post("/otp/verify", confirmOtp);
+router.post("/otp/login", otpLogin);
+router.post("/google", googleAuth);
 
 router.use(protect); // All below require authentication
 router.get("/me", getMe);

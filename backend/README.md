@@ -28,7 +28,11 @@ jolotorongo/
 │   ├── SubscriptionPlan.js   # plan definitions
 │   ├── JoinRequest.js        # agent ↔ houseboat join flow
 │   ├── Room.js               # rooms per houseboat
-│   ├── Booking.js            # holds, confirmations, history
+│   ├── Tour.js               # admin/manager tour schedule + room assignment
+│   ├── Booking.js            # confirmations, legacy holds, history
+│   ├── BookingRequest.js     # agent request + payment-confirmed gate
+│   ├── Invoice.js            # itemized booking invoices
+│   ├── Ledger.js             # booking revenue ledger
 │   └── Expense.js            # daily expenses + finance
 ├── controllers/
 │   ├── auth.controller.js
@@ -36,6 +40,8 @@ jolotorongo/
 │   ├── agent.controller.js
 │   ├── room.controller.js
 │   ├── booking.controller.js
+│   ├── bookingRequest.controller.js
+│   ├── tour.controller.js
 │   ├── expense.controller.js
 │   └── admin.controller.js
 ├── routes/                   # one file per domain
@@ -112,7 +118,8 @@ PATCH /api/agents/join-requests/:id/approve  (boat_owner)
      → agent.joinedHouseboatId = houseboatId
      → houseboat.approvedAgents += agentId
      ↓
-Agent can now place holds and manage bookings ✅
+Agent can now view approved vessel availability and send booking requests ✅
+Agents cannot directly book or hold/lock rooms.
 ```
 
 ---
@@ -187,11 +194,11 @@ Agent can now place holds and manage bookings ✅
 
 ---
 
-### Rooms  `/api/rooms`  _(boat_owner + active subscription)_
+### Rooms  `/api/rooms`  _(boat_owner/manager + active subscription)_
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | List own houseboat rooms |
+| GET | `/?houseboatId=` | List rooms for a managed vessel |
 | GET | `/:id` | Room detail |
 | POST | `/` | Create room |
 | PATCH | `/:id` | Update room |
@@ -201,14 +208,50 @@ Agent can now place holds and manage bookings ✅
 **Create room body:**
 ```json
 {
+  "houseboatId": "<ManagedHouseboatId>",
   "roomNumber": "A1",
   "roomType": "double",
-  "basePrice": 2500,
+  "acRoomPrice": 2500,
+  "nonAcRoomPrice": 2200,
   "extraPersonPrice": 500,
   "maxCapacity": 2,
-  "amenities": ["AC", "Attached Bath"]
+  "amenities": ["AC", "Attached Bath"],
+  "services": ["Breakfast", "Life Jacket"],
+  "imageUrls": []
 }
 ```
+
+---
+
+### Tours  `/api/tours`
+
+Tour configuration is Admin/Manager only. It never creates bookings.
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET | `/?houseboatId=` | boat_owner / manager | List configured tours |
+| POST | `/` | boat_owner / manager | Create tour with assigned rooms |
+| PATCH | `/:id` | boat_owner / manager | Update tour |
+| DELETE | `/:id` | boat_owner / manager | Delete tour |
+| GET | `/matrix?houseboatId=&checkIn=&checkOut=` | owner / manager / approved agent | Date-based room matrix |
+
+**Create tour body:**
+```json
+{
+  "houseboatId": "<ManagedHouseboatId>",
+  "title": "Blue Pearl",
+  "checkIn": "2026-06-10",
+  "checkOut": "2026-06-11",
+  "roomIds": ["<RoomId>"],
+  "note": "Optional"
+}
+```
+
+Expected:
+- selected vessel belongs to current Admin/Manager
+- selected rooms belong to selected vessel
+- selected rooms initialize as available for the tour date unless real bookings block them
+- no booking, hold, invoice, or ledger is created
 
 ---
 
@@ -219,24 +262,29 @@ Agent can now place holds and manage bookings ✅
 | GET | `/` | owner / agent | List bookings (filtered by role) |
 | GET | `/manifest?from=YYYY-MM-DD&to=YYYY-MM-DD` | owner / agent | Room allocation manifest |
 | GET | `/:id` | owner / agent | Booking detail + WhatsApp link |
-| POST | `/hold` | agent (verified + joined) | Place hold |
+| POST | `/direct` | boat_owner / manager | Direct confirmed booking |
+| POST | `/hold` | legacy | Agents receive 403; use booking requests |
 | PATCH | `/:id/confirm` | boat_owner | Confirm + release WhatsApp link |
 | PATCH | `/:id/cancel` | owner / agent | Cancel |
 | PATCH | `/:id/complete` | boat_owner | Mark completed |
 
-**Hold body:**
+**Direct booking body:**
 ```json
 {
   "roomId": "<ObjectId>",
   "customerName": "আব্দুল করিম",
   "customerPhone": "01811111111",
+  "referenceName": "Walk-in / Admin Ref",
   "checkIn": "2025-12-15",
   "checkOut": "2025-12-16",
   "guestCount": 3,
   "advancePaid": 1000,
+  "pricingMode": "ac",
   "note": "গ্রুপ ট্যুর"
 }
 ```
+
+Successful direct bookings auto-create Invoice and Ledger records.
 
 ---
 
@@ -246,9 +294,10 @@ Agent can now place holds and manage bookings ✅
 |--------|----------|------|-------------|
 | POST | `/` | agent | Send booking request for a boat/room and 2D/1N slot |
 | GET | `/my` | agent | List own booking requests |
-| GET | `/incoming` | boat_owner | List pending incoming booking requests |
-| PATCH | `/:requestId/approve` | boat_owner | Approve request and create confirmed booking |
-| PATCH | `/:requestId/reject` | boat_owner | Reject request |
+| PATCH | `/:requestId/payment-confirmed` | agent | Mark money collected by agent |
+| GET | `/incoming` | boat_owner / manager | List pending incoming booking requests |
+| PATCH | `/:requestId/approve` | boat_owner / manager | Approve request and create confirmed booking |
+| PATCH | `/:requestId/reject` | boat_owner / manager | Reject request |
 
 **Create request body:**
 ```json
@@ -258,9 +307,13 @@ Agent can now place holds and manage bookings ✅
   "checkIn": "2025-12-15",
   "checkOut": "2025-12-16",
   "guestCount": 3,
+  "customerName": "Customer",
+  "customerPhone": "01700000000",
   "note": "Customer prefers front deck room"
 }
 ```
+
+Booking requests do not lock rooms. Room state changes to booked only after Admin/Manager approval. Commission is calculated and stored on the request.
 
 ---
 
@@ -308,17 +361,17 @@ requireVerifiedAgent → agent must be super_admin verified
 ```
 
 ---
+Report includes gross revenue, agent commission, net revenue, expenses, and net profit from Ledger records where available.
 
-## 📱 Frontend Redirect Logic
+---
 
-After login, the backend returns `redirectTo`:
+### Revenue Records
 
-```js
-if (user.role === "boat_owner" && !subscriptionActive) {
-  redirectTo = "/subscription/plans"   // 🔴 Payment wall
-} else {
-  redirectTo = "/dashboard"            // ✅ Full access
-}
-```
+Confirmed direct bookings and approved agent requests create:
 
-Unverified agents should be shown a read-only "Houseboat List" page with a prompt to wait for verification.
+- `Invoice`
+- `Ledger`
+
+Ledger stores vessel name, room number/type, date range, gross revenue, agent commission, net revenue, and source (`direct` or `agent_request`).
+
+---

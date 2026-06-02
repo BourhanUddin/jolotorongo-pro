@@ -13,12 +13,13 @@ interface AuthState {
 const setCookie = (name: string, value: string, days = 7) => {
   if (typeof document === 'undefined') return;
   const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`;
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax${secure}`;
 };
 
 const deleteCookie = (name: string) => {
   if (typeof document === 'undefined') return;
-  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+  document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -49,9 +50,3 @@ export const useAuthStore = create<AuthState>()(
 export const useIsAdmin  = () => useAuthStore((s) => s.user?.role === 'super_admin');
 export const useIsOwner  = () => useAuthStore((s) => s.user?.role === 'boat_owner');
 export const useIsAgent  = () => useAuthStore((s) => s.user?.role === 'agent');
-export const useHasActiveSub = () =>
-  useAuthStore((s) => {
-    const sub = s.user?.subscription;
-    if (!sub?.isActive || sub?.paymentStatus !== 'paid' || !sub?.endDate) return false;
-    return new Date(sub.endDate) > new Date();
-  });

@@ -2,24 +2,31 @@
 export type Role = 'super_admin' | 'boat_owner' | 'manager' | 'agent';
 export type UserStatus = 'unverified' | 'pending' | 'active' | 'suspended';
 
-export interface Subscription {
-  planId: string | null;
-  planName: string | null;
-  startDate: string | null;
-  endDate: string | null;
-  isActive: boolean;
-  paymentMethod: string | null;
-  paymentReference: string | null;
-  paymentStatus: 'unpaid' | 'pending_approval' | 'paid' | 'failed';
-  renewalAlertSent: boolean;
-}
-
 export interface Notification {
   _id: string;
   message: string;
   type: 'info' | 'warning' | 'success' | 'error';
   isRead: boolean;
   createdAt: string;
+}
+
+export type PaymentMethod = 'bkash' | 'nagad' | 'rocket' | 'bank' | 'card' | 'cash' | 'demo_card';
+export type PaymentStatus = 'unpaid' | 'pending_approval' | 'paid' | 'failed';
+
+export interface Subscription {
+  planId: string | SubscriptionPlan | null;
+  planName: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  isActive: boolean;
+  paymentMethod: PaymentMethod | null;
+  paymentReference: string | null;
+  paymentStatus: PaymentStatus;
+  senderNumber?: string | null;
+  paymentScreenshotUrl?: string | null;
+  paymentNote?: string | null;
+  rejectionReason?: string | null;
+  renewalAlertSent: boolean;
 }
 
 export interface User {
@@ -30,26 +37,12 @@ export interface User {
   role: Role;
   status: UserStatus;
   isApprovedByAdmin: boolean;
-  subscription: Subscription;
+  subscription?: Subscription;
   joinedHouseboatId: string | Houseboat | null;
   notifications: Notification[];
   createdAt: string;
 }
 
-// ─── Houseboat ────────────────────────────────────────────────
-export interface Houseboat {
-  _id: string;
-  name: string;
-  location: string;
-  logoUrl: string | null;
-  ownerId: string | User;
-  holdTimeoutMinutes: number;
-  isOperational: boolean;
-  approvedAgents: string[];
-  createdAt: string;
-}
-
-// ─── Subscription Plan ────────────────────────────────────────
 export interface SubscriptionPlan {
   _id: string;
   name: string;
@@ -62,6 +55,19 @@ export interface SubscriptionPlan {
   maxAgents: number;
 }
 
+// ─── Houseboat ────────────────────────────────────────────────
+export interface Houseboat {
+  _id: string;
+  name: string;
+  location: string;
+  logoUrl: string | null;
+  ownerId: string | User;
+  holdTimeoutMinutes: number;
+  isOperational: boolean;
+  approvedAgents: string[] | User[];
+  createdAt: string;
+}
+
 // ─── Room ─────────────────────────────────────────────────────
 export type RoomStatus = 'available' | 'on_hold' | 'booked' | 'maintenance';
 export type RoomType = 'single' | 'double' | 'family' | 'vip' | 'dormitory';
@@ -71,11 +77,14 @@ export interface Room {
   houseboatId: string;
   roomNumber: string;
   roomType: RoomType;
+  acRoomPrice: number;
+  nonAcRoomPrice: number;
   basePrice: number;
   extraPersonPrice: number;
   maxCapacity: number;
   description: string;
   amenities: string[];
+  services: string[];
   images: string[];
   availability?: {
     checkIn: string;
@@ -88,7 +97,24 @@ export interface Room {
   isActive: boolean;
   availableOnDate?: boolean;
   availabilityState?: 'available' | 'on_hold' | 'booked' | 'maintenance';
+  state?: 'available' | 'on_hold' | 'booked' | 'maintenance';
+  blockingBookingId?: string | null;
+  expiresAt?: string | null;
   blockingBooking?: Booking | null;
+}
+
+// ─── Tour ─────────────────────────────────────────────────────
+export interface Tour {
+  _id: string;
+  houseboatId: string | Houseboat;
+  title: string;
+  checkIn: string;
+  checkOut: string;
+  roomIds: string[] | Room[];
+  createdById: string | User;
+  status: 'scheduled' | 'cancelled' | 'completed';
+  note: string;
+  createdAt: string;
 }
 
 // ─── Booking ──────────────────────────────────────────────────
@@ -103,14 +129,19 @@ export interface Booking {
   customerName: string;
   customerPhone: string;
   customerAddress: string;
+  referenceName: string;
   guestCount: number;
   checkIn: string;
   checkOut: string;
   nights: number;
+  tourName: string;
+  pricingMode: 'ac' | 'non_ac';
   basePrice: number;
   extraCharge: number;
   discount: number;
   totalPrice: number;
+  agentCommission: number;
+  netRevenue: number;
   advancePaid: number;
   dueAmount: number;
   status: BookingStatus;
@@ -160,6 +191,12 @@ export interface BookingRequest {
   };
   guestCount: number;
   totalPrice: number;
+  agentCommission: number;
+  paymentConfirmedByAgent: boolean;
+  paymentConfirmedAt: string | null;
+  customerName: string;
+  customerPhone: string;
+  customerAddress: string;
   status: 'pending' | 'approved' | 'rejected';
   note: string;
   reviewedAt: string | null;

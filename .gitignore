@@ -19,6 +19,13 @@ frontend/.env*.local
 *.log
 npm-debug.log*
 
+# Local database data
+.mongo-data/
+
+# Local agent/plugin caches and runtime uploads
+.codex-plugins/
+backend/uploads/
+
 # OS files
 .DS_Store
 Thumbs.db

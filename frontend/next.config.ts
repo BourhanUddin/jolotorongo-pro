@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+
+const backendApiUrl = process.env.BACKEND_API_URL || "http://localhost:5000/api";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ["192.168.0.100"],
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
   // Allow images from any source
   images: {
     remotePatterns: [
@@ -13,7 +20,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api"}/:path*`,
+        destination: `${backendApiUrl}/:path*`,
       },
     ];
   },

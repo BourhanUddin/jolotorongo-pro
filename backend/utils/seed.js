@@ -1,4 +1,4 @@
-require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
+require("./env").loadEnv();
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const SubscriptionPlan = require("../models/SubscriptionPlan");
@@ -7,44 +7,36 @@ const { connectDB } = require("../config/db");
 const seed = async () => {
   await connectDB();
 
-  // ─── Subscription Plans ──────────────────────────────────
   await SubscriptionPlan.deleteMany({});
-  const plans = await SubscriptionPlan.insertMany([
+  await SubscriptionPlan.insertMany([
     {
-      name: "বেসিক",
+      name: "Basic",
       durationDays: 30,
       price: 500,
-      description: "১ মাসের জন্য বেসিক প্ল্যান",
-      features: ["সর্বোচ্চ ১০টি রুম", "সর্বোচ্চ ৫ জন এজেন্ট", "হোয়াটসঅ্যাপ ইনভয়েস"],
+      description: "Small boat starter plan",
+      features: ["10 rooms", "5 agents", "Manual payment approval"],
       maxRooms: 10,
       maxAgents: 5,
     },
     {
-      name: "প্রো",
+      name: "Pro",
       durationDays: 90,
       price: 1200,
-      description: "৩ মাসের জন্য প্রো প্ল্যান",
-      features: ["সর্বোচ্চ ২০টি রুম", "সর্বোচ্চ ১৫ জন এজেন্ট", "হোয়াটসঅ্যাপ ইনভয়েস", "ফাইন্যান্স রিপোর্ট"],
+      description: "Growing houseboat operations",
+      features: ["20 rooms", "15 agents", "Finance reports"],
       maxRooms: 20,
       maxAgents: 15,
     },
     {
-      name: "বার্ষিক",
+      name: "Annual",
       durationDays: 365,
       price: 4000,
-      description: "১ বছরের জন্য সর্বোচ্চ সুবিধা",
-      features: [
-        "সীমাহীন রুম",
-        "সীমাহীন এজেন্ট",
-        "হোয়াটসঅ্যাপ ইনভয়েস",
-        "ফাইন্যান্স রিপোর্ট",
-        "প্রিয়রিটি সাপোর্ট",
-      ],
+      description: "Full year platform access",
+      features: ["Unlimited rooms", "Unlimited agents", "Priority support"],
       maxRooms: 9999,
       maxAgents: 9999,
     },
   ]);
-  console.log("✅ সাবস্ক্রিপশন প্ল্যান তৈরি হয়েছে:", plans.map((p) => p.name).join(", "));
 
   // ─── Super Admin ─────────────────────────────────────────
   await User.deleteOne({ email: "admin@jolotorongo.com" });
@@ -56,6 +48,8 @@ const seed = async () => {
     role: "super_admin",
     status: "active",
     isApprovedByAdmin: true,
+    isEmailVerified: true,
+    isPhoneVerified: true,
   });
   console.log("✅ সুপার অ্যাডমিন তৈরি হয়েছে:", superAdmin.email);
 

@@ -6,12 +6,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { StatusBadge, InfoCard, Spinner, Field, SectionHeader } from '@/components/ui';
-import { formatDate, daysLeft, formatMoney } from '@/lib/labels';
+import { formatDate } from '@/lib/labels';
 import type { Notification } from '@/types';
 import { Bell, Lock, LogOut, ChevronRight } from 'lucide-react';
 
 export default function ProfilePage() {
-  const { user, logout, setUser } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const router = useRouter();
   const qc = useQueryClient();
   const [tab, setTab] = useState<'info' | 'notifications' | 'password'>('info');
@@ -43,10 +43,6 @@ export default function ProfilePage() {
     if (pwForm.newPassword.length < 6) { toast.error('পাসওয়ার্ড কমপক্ষে ৬ অক্ষর'); return; }
     changePwMutation.mutate();
   };
-
-  const sub = user?.subscription;
-  const subActive = sub?.isActive && sub?.paymentStatus === 'paid' && sub?.endDate && new Date(sub.endDate) > new Date();
-  const dLeft = sub?.endDate ? daysLeft(sub.endDate) : 0;
 
   const roleLabel: Record<string, string> = {
     super_admin: '🛡️ সুপার অ্যাডমিন',
@@ -108,32 +104,6 @@ export default function ProfilePage() {
               </div>
             ))}
           </div>
-
-          {/* Subscription card */}
-          {user?.role === 'boat_owner' && (
-            <div className={`card border-2 ${subActive ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
-              <div className="flex justify-between items-center mb-2">
-                <p className="font-bold text-slate-800">💳 সাবস্ক্রিপশন</p>
-                <StatusBadge status={subActive ? 'active' : (sub?.paymentStatus || 'unpaid')} />
-              </div>
-              {sub?.planName && (
-                <>
-                  <p className="text-sm font-semibold text-slate-700">{sub.planName}</p>
-                  {sub.endDate && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      মেয়াদ: {formatDate(sub.endDate)}
-                      {subActive && <span className="text-emerald-600 font-medium"> ({dLeft} দিন বাকি)</span>}
-                    </p>
-                  )}
-                </>
-              )}
-              {!subActive && (
-                <button onClick={() => router.push('/subscription')} className="btn btn-primary btn-full mt-3 text-sm">
-                  প্ল্যান কিনুন / রিনিউ করুন
-                </button>
-              )}
-            </div>
-          )}
 
           {/* Agent status */}
           {user?.role === 'agent' && !user?.isApprovedByAdmin && (

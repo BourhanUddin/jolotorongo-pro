@@ -6,12 +6,13 @@ const {
   createPlan, updatePlan, deletePlan,
 } = require("../controllers/subscription.controller");
 const { protect, restrictTo } = require("../middleware/auth.middleware");
+const { uploadPaymentScreenshot } = require("../middleware/upload.middleware");
 
 // Public — any logged-in user can view plans
 router.get("/plans", protect, getPlans);
 
 // Boat owner actions
-router.post("/purchase", protect, restrictTo("boat_owner"), purchaseSubscription);
+router.post("/purchase", protect, restrictTo("boat_owner"), uploadPaymentScreenshot, purchaseSubscription);
 
 // Super admin actions
 router.get("/pending", protect, restrictTo("super_admin"), getPendingApprovals);

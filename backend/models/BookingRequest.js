@@ -28,6 +28,12 @@ const bookingRequestSchema = new mongoose.Schema(
     },
     guestCount: { type: Number, default: 1 },
     totalPrice: { type: Number, required: true },
+    agentCommission: { type: Number, default: 0 },
+    paymentConfirmedByAgent: { type: Boolean, default: false },
+    paymentConfirmedAt: { type: Date, default: null },
+    customerName: { type: String, default: "" },
+    customerPhone: { type: String, default: "" },
+    customerAddress: { type: String, default: "" },
     status: {
       type: String,
       enum: ["pending", "approved", "rejected"],

@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { type Dispatch, type SetStateAction, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import {
@@ -20,7 +20,8 @@ import {
   Tv,
   WalletCards,
 } from "lucide-react";
-import { roomApi } from "@/lib/api";
+import { houseboatApi, roomApi } from "@/lib/api";
+import type { Houseboat } from "@/types";
 
 const categories = [
   { label: "Deluxe", value: "double" },
@@ -40,26 +41,52 @@ export default function AddRoomPage() {
   const qc = useQueryClient();
   const [roomNumber, setRoomNumber] = useState("");
   const [roomType, setRoomType] = useState("double");
-  const [basePrice, setBasePrice] = useState("12500");
+  const [acRoomPrice, setAcRoomPrice] = useState("12500");
+  const [nonAcRoomPrice, setNonAcRoomPrice] = useState("9500");
   const [extraPersonPrice, setExtraPersonPrice] = useState("1500");
   const [maxCapacity, setMaxCapacity] = useState(2);
   const [amenities, setAmenities] = useState<string[]>(["Full A/C", "Attached Bath"]);
+  const [services, setServices] = useState<string[]>(["Breakfast", "Life Jacket"]);
+  const [amenityDraft, setAmenityDraft] = useState("");
+  const [serviceDraft, setServiceDraft] = useState("");
   const [imageUrls, setImageUrls] = useState(
     "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80"
   );
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [vesselId, setVesselId] = useState("");
+
+  const { data: fleetData } = useQuery({
+    queryKey: ["houseboat-fleet"],
+    queryFn: () => houseboatApi.fleet(),
+  });
+  const vessels: (Houseboat & { selected?: boolean })[] = fleetData?.data?.data?.houseboats || [];
+  const selectedVesselId = vesselId || fleetData?.data?.data?.selectedHouseboatId || vessels.find((boat) => boat.selected)?._id || vessels[0]?._id || "";
 
   const mutation = useMutation({
-    mutationFn: () =>
-      roomApi.create({
+    mutationFn: () => {
+      const payload = {
+        houseboatId: selectedVesselId,
         roomNumber,
         roomType,
-        basePrice: Number(basePrice),
+        acRoomPrice: Number(acRoomPrice),
+        nonAcRoomPrice: Number(nonAcRoomPrice),
+        basePrice: Number(acRoomPrice),
         extraPersonPrice: Number(extraPersonPrice),
         maxCapacity,
         amenities,
+        services,
         imageUrls: imageUrls.split("\n").map((url) => url.trim()).filter(Boolean),
         description: `${categories.find((item) => item.value === roomType)?.label || "Room"} cabin for 2D / 1N tours.`,
-      }),
+      };
+      if (imageFiles.length === 0) return roomApi.create(payload);
+
+      const fd = new FormData();
+      Object.entries(payload).forEach(([key, value]) => {
+        fd.append(key, Array.isArray(value) ? JSON.stringify(value) : String(value));
+      });
+      imageFiles.forEach((file) => fd.append("images", file));
+      return roomApi.create(fd);
+    },
     onSuccess: () => {
       toast.success("Room added successfully.");
       qc.invalidateQueries({ queryKey: ["rooms"] });
@@ -68,10 +95,16 @@ export default function AddRoomPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Could not add room"),
   });
 
-  const canSave = roomNumber.trim() && Number(basePrice) > 0;
+  const canSave = roomNumber.trim() && selectedVesselId && Number(acRoomPrice) > 0 && Number(nonAcRoomPrice) > 0;
 
   const toggleAmenity = (key: string) => {
     setAmenities((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  };
+  const addToken = (value: string, setter: Dispatch<SetStateAction<string[]>>, clear: () => void) => {
+    const clean = value.trim();
+    if (!clean) return;
+    setter((current) => current.includes(clean) ? current : [...current, clean]);
+    clear();
   };
 
   return (
@@ -91,9 +124,10 @@ export default function AddRoomPage() {
           className="h-48 w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-        <button className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full bg-black/45 px-4 py-3 text-sm font-bold text-white backdrop-blur">
+        <label className="absolute bottom-4 left-4 flex cursor-pointer items-center gap-2 rounded-full bg-black/45 px-4 py-3 text-sm font-bold text-white backdrop-blur">
           <Camera size={20} /> Upload Room Photos
-        </button>
+          <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => setImageFiles(Array.from(event.target.files || []))} />
+        </label>
       </section>
 
       <section className="mt-7">
@@ -124,13 +158,18 @@ export default function AddRoomPage() {
           <span className="text-xs font-bold">2D / 1N TRIP</span>
         </div>
         <label className="block rounded-lg border-2 border-slate-600 bg-white px-4 py-3">
-          <span className="text-xs text-slate-500">Base Price (BDT)</span>
+          <span className="text-xs text-slate-500">AC Room Price (BDT)</span>
           <span className="mt-1 flex items-center justify-between">
-            <input value={basePrice} onChange={(event) => setBasePrice(event.target.value)} type="number" className="w-full bg-transparent text-3xl font-bold outline-none" />
+            <input value={acRoomPrice} onChange={(event) => setAcRoomPrice(event.target.value)} type="number" min="0" required className="w-full bg-transparent text-3xl font-bold outline-none" />
             <span className="text-sm text-slate-600">per night</span>
           </span>
         </label>
         <div className="mt-5 grid grid-cols-2 gap-4">
+          <label className="rounded-lg bg-white/70 p-4">
+            <span className="text-xs uppercase tracking-widest">Non-AC Room Price</span>
+            <input value={nonAcRoomPrice} onChange={(event) => setNonAcRoomPrice(event.target.value)} type="number" min="0" required className="mt-2 w-full bg-transparent text-2xl font-medium outline-none" />
+            <span className="text-[10px] uppercase text-slate-500">per night</span>
+          </label>
           <div className="rounded-lg bg-white/70 p-4">
             <p className="text-xs uppercase tracking-widest">Capacity</p>
             <div className="mt-3 flex items-center gap-4">
@@ -163,6 +202,25 @@ export default function AddRoomPage() {
             );
           })}
         </div>
+        <div className="mt-3 flex gap-2">
+          <input value={amenityDraft} onChange={(event) => setAmenityDraft(event.target.value)} placeholder="Add custom amenity" className="input" />
+          <button onClick={() => addToken(amenityDraft, setAmenities, () => setAmenityDraft(""))} className="btn btn-outline shrink-0">Add</button>
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <h2 className="mb-4 text-xl font-medium">Services</h2>
+        <div className="flex flex-wrap gap-2">
+          {services.map((service) => (
+            <button key={service} onClick={() => setServices((current) => current.filter((item) => item !== service))} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm">
+              {service} ×
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input value={serviceDraft} onChange={(event) => setServiceDraft(event.target.value)} placeholder="Add service" className="input" />
+          <button onClick={() => addToken(serviceDraft, setServices, () => setServiceDraft(""))} className="btn btn-outline shrink-0">Add</button>
+        </div>
       </section>
 
       <section className="mt-8">
@@ -171,13 +229,20 @@ export default function AddRoomPage() {
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#dfd0ff] text-[#32157c]"><Sailboat size={23} /></span>
           <p className="mt-4 font-bold">Assign to Houseboat</p>
           <p className="mt-1 text-sm text-slate-700">Selected: Your active fleet vessel</p>
-          <p className="mt-4 text-xs font-bold uppercase tracking-widest">Change Vessel ›</p>
+          <select value={selectedVesselId} onChange={(event) => setVesselId(event.target.value)} className="input mt-4 text-left">
+            {vessels.length === 0 ? (
+              <option value="">No active vessel found</option>
+            ) : vessels.map((boat) => (
+              <option key={boat._id} value={boat._id}>{boat.name}</option>
+            ))}
+          </select>
         </div>
       </section>
 
       <label className="mt-6 block">
         <span className="mb-2 block text-xs font-semibold uppercase tracking-widest">Image URLs</span>
         <textarea value={imageUrls} onChange={(event) => setImageUrls(event.target.value)} rows={3} className="input" />
+        {imageFiles.length > 0 && <span className="mt-2 block text-xs font-semibold text-slate-600">{imageFiles.length} image file(s) selected</span>}
       </label>
 
       <div className="mt-8 grid gap-4">

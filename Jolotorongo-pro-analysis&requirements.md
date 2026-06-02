@@ -1,241 +1,280 @@
+# Jolotorongo Requirements & Analysis
 
-🧭 1. Software Requirements & Analysis (SRA)
-1.1 System Overview
-Jolotorongo is a multi-tenant SaaS platform that enables multiple houseboat owners to manage their operations — rooms, bookings, agents, and finances — from a single responsive web and mobile interface.  
-It operates under a shared database, isolated logic model.
+## 1. System Overview
 
-1.2 Goals
-• Manage multiple houseboats (tenants) under one platform.
-• Enable owners, managers, and agents to coordinate bookings and finances efficiently.
-• Ensure offline access (PWA) and real-time room status updates.
-• Integrate WhatsApp for communication and invoices.
+Jolotorongo is a production multi-tenant SaaS platform for Tanguar Haor houseboat operators. It uses a shared MongoDB database with tenant isolation through `houseboatId`.
 
-1.3 Intended Users & Roles
+The current backend stack is Node.js, Express, MongoDB, Mongoose, JWT auth, Multer/Cloudinary or local upload fallback, and node-cron. The current frontend stack is Next.js App Router, React, TypeScript, Tailwind CSS, TanStack Query, and PWA/offline cache helpers.
 
-| User Type      | Key Responsibilities |
-|----------------|----------------------|
-| Super Admin | Approve new houseboats, manage subscription, global analytics. |
-| Admin (Owner) | Manage houseboat setup, rooms, pricing, user access, reports. |
-| Manager     | Handle bookings, expenses, invoices, daily cashflow. |
-| Agent       | Request holds, view room availability, send bookings to customers. |
-| Customer (External) | Receive invoice link via WhatsApp, confirm payment directly. |
+## 2. Goals
 
-1.4 Functional Requirements
-A. Authentication & Access Control
-• JWT and role-based authorization middleware.
-• Super Admin registration restricted to system setup.
-• Tenant-based isolation using houseboatId.
+- Manage active fleet vessels, rooms, tours, bookings, agents, revenue, expenses, invoices, and ledgers.
+- Keep all tenant-owned data scoped by `houseboatId`.
+- Separate Tour configuration from Booking operations.
+- Support direct Admin/Manager bookings and Agent booking requests with approval gate.
+- Automatically aggregate confirmed bookings into revenue, invoice, and ledger records.
 
-B. Booking Operations
-Hold Request
-   - Agent can place a room “on hold” for a fixed duration (default: 60 mins).
-   - The system auto-releases after timeout via cron.
+## 3. Roles
 
-Direct Bookings
-   - Managers/Admins can instantly confirm a booking (no pending state).
+| Role | Responsibilities |
+| --- | --- |
+| Super Admin | Verify owners/agents, approve subscriptions, manage platform users/plans, view global admin data. |
+| Admin / Boat Owner | Manage own houseboat, rooms, tours, bookings, agents, managers, expenses, revenue. |
+| Manager | Manage assigned houseboat tours, bookings, expenses, manifests, and revenue operations. |
+| Agent | View approved boat availability, submit booking requests, mark payment collected, track commission. |
+| Customer External | Receives WhatsApp invoice/payment communication only; no dashboard user. |
 
-Approval Cycle
-   - Managers/Admins can approve, reject, or expire bookings.
+## 4. Core Functional Requirements
 
-WhatsApp Integration
-   - Generate wa.me URLs using localized invoice message templates (Bangla/English switchable).
+### 4.1 Authentication & Access Control
 
-C. Room Management
-• Create, update, disable rooms with pricing matrix.
-• Room schema includes room type, capacity, pricing, image URLs, and an `availability` array for booked/held trip slots.
-• Admin/Owner can create rooms with multiple images via direct image URLs or multipart upload backed by Multer + Cloudinary.
-• Real-time slot-based availability for selected check-in / check-out trip dates (Available / On Hold / Booked).
+- JWT-based auth.
+- Role guards for all protected routes.
+- Tenant scope derived from logged-in user.
+- Active subscription required for owner operational actions.
+- Verified agent required for agent availability and request flows.
 
-D. Expense & Finance Management
-• Daily expense entry per houseboat.
-• Auto-calculated profit chart (Revenue – Expenses).
-• Generate printable invoice PDFs.
+### 4.2 Room Management
 
-E. Multi-Tenancy
-• Tenants separated by houseboatId.
-• Super Admin can deactivate or suspend a tenant.
+- Admin/Manager can create, update, disable rooms for own vessel.
+- Room must be assigned to a specific active houseboat through `Assign to Houseboat`.
+- Active fleet vessels are loaded dynamically from `/api/houseboat/fleet`.
+- Default selected vessel is the user's active fleet vessel.
+- Room supports:
+  - single/multiple image uploads
+  - `acRoomPrice`
+  - `nonAcRoomPrice`
+  - `extraPersonPrice`
+  - `maxCapacity`
+  - `amenities`
+  - `services`
+  - `images`
 
-F. Agent Management
-• Admin can create / disable agents.
-• Agents limited to their own bookings and stats.
-• Agents can browse active boats from the database and send booking requests for selected 2D/1N trip dates.
-• BookingRequest stores agentId, boatId, roomId, tripDates, status (pending/approved/rejected), guest count, and total price.
+### 4.3 Tour Configuration
 
-G. System Maintenance
-• Cron Jobs: Auto-expire holds every 5 minutes.
-• Data Validation: Zod schema on both frontend & backend.
-• Rate Limiting: Prevent booking spam.
+- Create Tour is Admin/Manager only.
+- Agents cannot access Tour create/edit/delete workflow.
+- Tour has:
+  - `houseboatId`
+  - editable `title`
+  - `checkIn`
+  - `checkOut`
+  - assigned `roomIds`
+  - `status`
+  - `note`
+- Selecting vessel loads rooms linked to that houseboat.
+- Admin/Manager selects rooms assigned to that Tour instance.
+- No booking buttons or booking workflow are allowed inside Create Tour.
+- Selected tour rooms initialize as available for that scheduled 2D/1N date unless blocked by actual bookings.
 
-1.5 Non-Functional Requirements
+### 4.4 Booking Operations
 
-| Category | Requirements |
-|-----------|---------------|
-| Performance | Response time ≤ 300ms avg; scalable to 100 tenants. |
-| Security | JWT + Bcrypt; role-based guards; input validation. |
-| Reliability | Auto restart via PM2; uptime ≥ 99.9%. |
-| Scalability | MongoDB Atlas cluster + stateless Express API. |
-| Usability (Responsive) | Mobile-first flow; collapsible dashboard menus; large tap zones; offline caching via next-pwa. |
-| Offline Support (PWA) | Sync bookings and availability using IndexedDB + service workers. |
-| Localization | Bangla and English labels. |
-| Backup | Daily MongoDB automated backups. |
+#### Admin / Manager
 
-1.6 System Modules
+- Booking page displays a date-based room matrix for selected vessel and tour date.
+- Assigned rooms show real-time status:
+  - Available
+  - On Hold
+  - Booked
+  - Maintenance
+- Booked/on-hold/maintenance rooms are locked visually and operationally.
+- Admin/Manager can directly book available rooms.
+- Direct booking requires `referenceName`.
+- Successful direct booking creates:
+  - confirmed Booking
+  - Invoice
+  - Ledger entry
+  - net revenue record
 
-``
-Frontend (Next.js 15)
-│
-├── Auth & Role Middleware
-├── Tenant-aware Dashboard (Admin/Manager/Agent)
-├── Booking Management UI
-├── Room Setup Wizard
-├── Expense & Report Panel
-├── WhatsApp Integration Utility
-└── PWA Offline Cache
+#### Agent
 
-Backend (Express + TypeScript)
-│
-├── Auth & RBAC Middleware
-├── Booking Controller (Hold, Approve, Expire)
-├── Room Controller
-├── Expense Controller
-├── User Controller
-├── WhatsApp Service
-├── Scheduler (node-cron)
-└── Prisma ORM (MongoDB)
-`
+- Agent cannot create Tours.
+- Agent cannot directly book or hold/lock rooms.
+- Agent can only view booking availability for approved tenant network.
+- Agent submits BookingRequest with:
+  - customer name/contact/address
+  - guest count
+  - selected room
+  - trip date
+  - note
+  - calculated agent commission
+- Agent can mark a pending request as `paymentConfirmedByAgent`.
+- Room status remains available until Admin/Manager approves the request.
+- Admin/Manager approval creates a confirmed Booking and marks room booked.
 
-🗂️ 2. Database Design (Prisma ORM — MongoDB)
-2.1 Updated Schema (mobile-first optimizations included)
+### 4.5 2D/1N Date Rules
 
-`prisma
-enum Role {
-  SUPERADMIN
-  ADMIN
-  MANAGER
-  AGENT
-}
+All booking and tour slots use:
 
-enum BookingStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-  EXPIRED
-}
+```ts
+checkIn: Date;
+checkOut: Date; // normally checkIn + 1 day
+```
 
-enum RoomStatus {
-  AVAILABLE
-  ONHOLD
-  BOOKED
-}
+Overlap rule:
 
-model User {
-  id            String      @id @default(uuid())
-  name          String
-  email         String      @unique
-  phone         String?
-  password      String
-  role          Role        @default(AGENT)
-  houseboatId   String?
-  houseboat     Houseboat?   @relation(fields: [houseboatId], references: [id])
-  bookings      Booking[]
-  active        Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-}
+```ts
+existing.checkIn < requested.checkOut &&
+existing.checkOut > requested.checkIn
+```
 
-model Houseboat {
-  id              String      @id @default(uuid())
-  name            String
-  location        String?
-  logoUrl         String?
-  holdTimeout     Int         @default(60)
-  isSubscribed    Boolean     @default(false)
-  subscriptionEnd DateTime?
-  rooms           Room[]
-  users           User[]
-  bookings        Booking[]
-  expenses        Expense[]
-  createdAt       DateTime    @default(now())
-}
+Only these statuses block availability:
 
-model Room {
-  id           String      @id @default(uuid())
-  roomNumber   String
-  houseboatId  String
-  houseboat    Houseboat   @relation(fields: [houseboatId], references: [id])
-  basePrice    Float
-  extraPrice   Float
-  maxCapacity  Int
-  status       RoomStatus  @default(AVAILABLE)
-  bookings     Booking[]
-}
+```ts
+["on_hold", "confirmed"]
+```
 
-model Booking {
-  id             String         @id @default(uuid())
-  roomId         String
-  room           Room           @relation(fields: [roomId], references: [id])
-  agentId        String
-  agent          User           @relation(fields: [agentId], references: [id])
-  customerName   String
-  customerPhone  String
-  tourDate       DateTime
-  totalPrice     Float
-  status         BookingStatus  @default(PENDING)
-  expiresAt      DateTime?
-  approvedById   String?
-  createdAt      DateTime       @default(now())
-}
+Expired, rejected, cancelled, completed, and failed records do not block availability.
 
-model Expense {
-  id             String      @id @default(uuid())
-  houseboatId    String
-  houseboat      Houseboat   @relation(fields: [houseboatId], references: [id])
-  title          String
-  amount         Float
-  category       String       // e.g., fuel, food, repair
-  note           String?
-  date           DateTime     @default(now())
-  createdById    String
-  createdBy      User          @relation(fields: [createdById], references: [id])
-}
-`
+### 4.6 Revenue, Invoice, Ledger
 
-2.2 Mobile Responsiveness & Data Flow Optimization
-• All CRUD endpoints return lightweight DTOs (e.g., only necessary nested relations).
-• Cached data (e.g., room list, availability) stored in IndexedDB for offline access.
-• Use pagination for large data tables (∞ scroll design on mobile screens).
-• WhatsApp and Invoice endpoints return short links (for easy mobile sharing).
+Every successful booking, whether direct or approved agent request, must create or update:
 
-📱 3. Mobile UI Flow (Responsive UX)
+- `Invoice`
+- `Ledger`
+- booking revenue fields
 
-| Role | Primary Mobile Screens |
-|------|-------------------------|
-| Super Admin | Dashboard → Tenant List → Reports |
-| Admin / Manager | Dashboard → Rooms → Bookings → Expenses → Invoice |
-| Agent | Search → Check Availability → Hold Request → Booking Status |
-| Customer (External) | WhatsApp Invoice → Payment Done Confirmation |
+Revenue records retain:
 
-🔁 4. Core Logic Summary (Backend Scheduler)
+- booking date range
+- room number/type
+- vessel name
+- customer and source context through booking relation
+- gross revenue
+- agent commission
+- net revenue
+- invoice number and itemized invoice lines
 
-| Task | Schedule | Action |
-|------|-----------|--------|
-| Auto-Release Held Rooms | Every 5 mins | If Booking.status == PENDING and expiresAt < now() → status = EXPIRED, Room.status = AVAILABLE |
-| Subscription Expiry | Daily | Mark unsubscribed houseboats and disable booking access. |
+Finance reports aggregate ledger net revenue, agent commission, expenses, and net profit.
 
-📘 5. Future Scalability Notes
-• Upgrade Path: Add Socket.IO layer for live room status.
-• Analytics: Create BookingAnalytics and AgentPerformance collections.
-• Payments: Integrate Stripe or bKash gateway.
-• Offline-first Storage: Use @tanstack/query + IndexedDB sync strategy.
+### 4.7 Agent Management
 
-✅ Final Deliverables Summary
+- Agent self-registration.
+- Global verification by Super Admin.
+- Tenant join request to active houseboat.
+- Owner approves/rejects agent join.
+- Agent availability and booking requests require both global verification and tenant approval.
 
-| Category | Stack |
-|-----------|-------|
-| Frontend | Next.js 15 + React 19 (Mobile responsive + PWA) |
-| Backend | Node.js + Express + Prisma + MongoDB |
-| Auth | JWT with RBAC (Super Admin → Agent) |
-| Realtime Ops | node-cron scheduler |
-| Mobile UX | PWA offline mode + Whatsapp link sharing |
-| Schema | Multi-tenant isolation via houseboatId` foreign key |
+### 4.8 Expenses & Finance
 
-This version cleanly aligns business logic, mobile usability, and scalable SaaS design — ready for phased implementation and production deployment.
+- Admin/Manager can create tenant-scoped expenses.
+- Finance dashboard shows:
+  - gross revenue
+  - agent commission
+  - net revenue
+  - expenses
+  - net profit
+
+## 5. Current Mongoose Collections
+
+Tenant-owned collections include:
+
+- `Houseboat`
+- `Room`
+- `Tour`
+- `Booking`
+- `BookingRequest`
+- `Expense`
+- `Invoice`
+- `Ledger`
+
+`Room` includes:
+
+```ts
+houseboatId
+roomNumber
+roomType
+acRoomPrice
+nonAcRoomPrice
+basePrice // backward-compatible AC fallback
+extraPersonPrice
+maxCapacity
+amenities[]
+services[]
+images[]
+availability[]
+status
+isActive
+```
+
+`Tour` includes:
+
+```ts
+houseboatId
+title
+checkIn
+checkOut
+roomIds[]
+createdById
+status
+note
+```
+
+`BookingRequest` includes:
+
+```ts
+agentId
+boatId
+roomId
+ownerId
+tripDates
+guestCount
+totalPrice
+agentCommission
+paymentConfirmedByAgent
+paymentConfirmedAt
+customerName
+customerPhone
+customerAddress
+status
+note
+bookingId
+```
+
+`Ledger` includes:
+
+```ts
+houseboatId
+bookingId
+invoiceId
+roomId
+agentId
+vesselName
+roomNumber
+roomType
+checkIn
+checkOut
+grossRevenue
+agentCommission
+netRevenue
+source
+```
+
+## 6. Current API Modules
+
+- `/api/auth`
+- `/api/admin`
+- `/api/houseboat`
+- `/api/rooms`
+- `/api/tours`
+- `/api/bookings`
+- `/api/booking-requests`
+- `/api/expenses`
+- `/api/subscriptions`
+
+## 7. Responsive UI Requirements
+
+- Mobile, tablet, desktop support.
+- Booking matrix must remain usable on mobile.
+- Tables need card alternatives.
+- Large tap targets.
+- No horizontal overflow.
+- Empty/loading/error states required.
+
+## 8. Production Notes
+
+- Do not introduce Prisma unless migration explicitly approved.
+- Keep using Mongoose for current backend.
+- Keep small, reviewable patches.
+- Never trust tenant IDs from client unless the route verifies that the vessel belongs to the logged-in actor.
+- Never store secrets in source.

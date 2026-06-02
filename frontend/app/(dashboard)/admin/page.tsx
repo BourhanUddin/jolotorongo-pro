@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Edit3, Mail, Phone, Plus, Search, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
-import { adminApi } from "@/lib/api";
+import { adminApi, subscriptionApi } from "@/lib/api";
 import { ConfirmDialog, EmptyState, Modal, PageLoader, StatusBadge } from "@/components/ui";
 import type { Role, User, UserStatus } from "@/types";
 
@@ -44,10 +44,15 @@ export default function AdminPage() {
     queryKey: ["admin-agents"],
     queryFn: () => adminApi.agents(),
   });
+  const { data: pendingSubData } = useQuery({
+    queryKey: ["subscription-pending"],
+    queryFn: () => subscriptionApi.getPending(),
+  });
 
   const owners: User[] = ownersData?.data?.data?.owners || [];
   const managers: User[] = managersData?.data?.data?.managers || [];
   const agents: User[] = agentsData?.data?.data?.agents || [];
+  const pendingSubscriptions: User[] = pendingSubData?.data?.data?.users || [];
   const list = tab === "owners" ? owners : tab === "managers" ? managers : agents;
 
   const filtered = useMemo(() => {
@@ -82,6 +87,26 @@ export default function AdminPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Action failed"),
   });
 
+  const approveSub = useMutation({
+    mutationFn: (id: string) => subscriptionApi.approve(id),
+    onSuccess: () => {
+      toast.success("Subscription approved.");
+      qc.invalidateQueries({ queryKey: ["subscription-pending"] });
+      invalidateUsers();
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Approval failed"),
+  });
+
+  const rejectSub = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => subscriptionApi.reject(id, { reason }),
+    onSuccess: () => {
+      toast.success("Subscription rejected.");
+      qc.invalidateQueries({ queryKey: ["subscription-pending"] });
+      invalidateUsers();
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Reject failed"),
+  });
+
   const isLoading = l1 || l2 || l3;
   const activeMeta = TABS.find((item) => item.key === tab)!;
 
@@ -106,6 +131,17 @@ export default function AdminPage() {
           className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
         />
       </label>
+
+      <PendingSubscriptions
+        users={pendingSubscriptions}
+        approving={approveSub.isPending}
+        rejecting={rejectSub.isPending}
+        onApprove={(id) => approveSub.mutate(id)}
+        onReject={(id) => {
+          const reason = window.prompt("Reject reason?");
+          if (reason !== null) rejectSub.mutate({ id, reason });
+        }}
+      />
 
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
         {TABS.map((item) => {
@@ -170,6 +206,71 @@ export default function AdminPage() {
         message="Please confirm this user management action."
       />
     </div>
+  );
+}
+
+function PendingSubscriptions({
+  users,
+  approving,
+  rejecting,
+  onApprove,
+  onReject,
+}: {
+  users: User[];
+  approving: boolean;
+  rejecting: boolean;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  if (users.length === 0) return null;
+
+  return (
+    <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Payments</p>
+          <h2 className="text-lg font-bold text-slate-900">Pending Approval</h2>
+        </div>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-amber-700">{users.length}</span>
+      </div>
+      <div className="grid gap-3">
+        {users.map((user) => {
+          const sub = user.subscription;
+          return (
+            <article key={user._id} className="rounded-xl bg-white p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-800">{user.name}</p>
+                  <p className="text-xs text-slate-500">{user.phone || user.email}</p>
+                </div>
+                <p className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
+                  {sub?.paymentMethod || "payment"}
+                </p>
+              </div>
+              <div className="mt-3 grid gap-1 text-xs text-slate-600">
+                <p><b>Plan:</b> {sub?.planName || "—"}</p>
+                <p><b>Reference:</b> {sub?.paymentReference || "—"}</p>
+                <p><b>Sender:</b> {sub?.senderNumber || "—"}</p>
+                {sub?.paymentNote && <p><b>Note:</b> {sub.paymentNote}</p>}
+                {sub?.paymentScreenshotUrl && (
+                  <a href={sub.paymentScreenshotUrl} target="_blank" className="font-semibold text-sky-700">
+                    View payment screenshot
+                  </a>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button disabled={rejecting} onClick={() => onReject(user._id)} className="rounded-lg border border-red-200 py-2 text-xs font-bold text-red-600">
+                  Reject
+                </button>
+                <button disabled={approving} onClick={() => onApprove(user._id)} className="rounded-lg bg-emerald-600 py-2 text-xs font-bold text-white">
+                  Approve
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
