@@ -5,8 +5,17 @@ const invoiceNoFor = (booking) => `JT-${new Date().getFullYear()}-${String(booki
 
 const recordBookingRevenue = async ({ booking, room, houseboat, source, agentCommission = 0 }) => {
   const safeCommission = Math.max(0, Number(agentCommission) || 0);
-  const subtotal = booking.basePrice + booking.extraCharge;
-  const total = booking.totalPrice;
+  const existingInvoice = await Invoice.findOne({ bookingId: booking._id });
+  const draftItems = existingInvoice?.status === "draft" && existingInvoice.items?.length
+    ? existingInvoice.items
+    : null;
+  const items = draftItems || [
+    { label: `Room ${room.roomNumber} (${room.roomType})`, amount: booking.basePrice },
+    { label: "Extra guest charge", amount: booking.extraCharge },
+  ];
+  const subtotal = items.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const discount = existingInvoice?.status === "draft" ? Math.max(0, Number(existingInvoice.discount) || 0) : (booking.discount || 0);
+  const total = Math.max(0, subtotal - discount);
   const netRevenue = Math.max(0, total - safeCommission);
 
   const invoice = await Invoice.findOneAndUpdate(
@@ -15,12 +24,10 @@ const recordBookingRevenue = async ({ booking, room, houseboat, source, agentCom
       houseboatId: booking.houseboatId,
       bookingId: booking._id,
       invoiceNo: invoiceNoFor(booking),
-      items: [
-        { label: `Room ${room.roomNumber} (${room.roomType})`, amount: booking.basePrice },
-        { label: "Extra guest charge", amount: booking.extraCharge },
-      ],
+      status: "final",
+      items,
       subtotal,
-      discount: booking.discount || 0,
+      discount,
       agentCommission: safeCommission,
       netRevenue,
       total,
@@ -51,6 +58,8 @@ const recordBookingRevenue = async ({ booking, room, houseboat, source, agentCom
 
   booking.invoiceSentAt = booking.invoiceSentAt || new Date();
   booking.agentCommission = safeCommission;
+  booking.discount = discount;
+  booking.totalPrice = total;
   booking.netRevenue = netRevenue;
   await booking.save();
 

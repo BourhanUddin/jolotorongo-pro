@@ -120,6 +120,26 @@ function OwnerAgentsView() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
   });
 
+  const toggleManagerStatus = useMutation({
+    mutationFn: (manager: User) => houseboatApi.updateManager(manager._id, {
+      status: manager.status === 'suspended' ? 'active' : 'suspended',
+    }),
+    onSuccess: () => {
+      toast.success('ম্যানেজার স্ট্যাটাস আপডেট হয়েছে');
+      qc.invalidateQueries({ queryKey: ['owner-team'] });
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+  });
+
+  const deleteManager = useMutation({
+    mutationFn: (managerId: string) => houseboatApi.deleteManager(managerId),
+    onSuccess: () => {
+      toast.success('ম্যানেজার ডিলিট হয়েছে');
+      qc.invalidateQueries({ queryKey: ['owner-team'] });
+    },
+    onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+  });
+
   if (isLoading || bookingReqLoading || teamLoading) return <PageLoader />;
 
   return (
@@ -149,6 +169,22 @@ function OwnerAgentsView() {
                     <p className="text-xs text-slate-500">{manager.phone || 'ফোন নেই'}</p>
                   </div>
                   <StatusBadge status={manager.status} />
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => toggleManagerStatus.mutate(manager)}
+                    disabled={toggleManagerStatus.isPending}
+                    className="btn btn-outline text-xs"
+                  >
+                    {manager.status === 'suspended' ? 'সক্রিয় করুন' : 'সাসপেন্ড'}
+                  </button>
+                  <button
+                    onClick={() => deleteManager.mutate(manager._id)}
+                    disabled={deleteManager.isPending}
+                    className="btn btn-outline text-xs text-red-500 border-red-200"
+                  >
+                    ডিলিট
+                  </button>
                 </div>
               </div>
             ))}

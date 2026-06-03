@@ -5,17 +5,12 @@ import type { User } from '@/types';
 interface AuthState {
   user: User | null;
   token: string | null;
-  setAuth: (user: User, token: string) => void;
+  hydrated: boolean;
+  setAuth: (user: User, token?: string | null) => void;
   setUser: (user: User) => void;
+  setHydrated: (hydrated: boolean) => void;
   logout: () => void;
 }
-
-const setCookie = (name: string, value: string, days = 7) => {
-  if (typeof document === 'undefined') return;
-  const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax${secure}`;
-};
 
 const deleteCookie = (name: string) => {
   if (typeof document === 'undefined') return;
@@ -27,12 +22,12 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       token: null,
+      hydrated: false,
       setAuth: (user, token) => {
-        localStorage.setItem('jt_token', token);
-        setCookie('jt_token', token);
-        set({ user, token });
+        set({ user, token: token || null });
       },
       setUser: (user) => set({ user }),
+      setHydrated: (hydrated) => set({ hydrated }),
       logout: () => {
         localStorage.removeItem('jt_token');
         localStorage.removeItem('jt_user');
@@ -42,7 +37,10 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'jt_user',
-      partialize: (state) => ({ user: state.user, token: state.token }),
+      partialize: (state) => ({ user: state.user }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+      },
     }
   )
 );

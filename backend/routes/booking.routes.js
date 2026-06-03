@@ -11,7 +11,7 @@ router.use(protect);
 
 // Shared list + detail (agent sees own, owner sees all in their houseboat)
 router.get("/", getBookings);
-router.get("/manifest", restrictTo("boat_owner", "manager", "agent", "super_admin"), getManifest);
+router.get("/manifest", restrictTo("boat_owner", "manager", "super_admin"), getManifest);
 router.get("/:id", getBooking);
 
 // Agent: place hold (must be verified + joined a houseboat)

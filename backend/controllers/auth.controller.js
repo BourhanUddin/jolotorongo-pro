@@ -1,6 +1,6 @@
 const User = require("../models/User");
 const Houseboat = require("../models/Houseboat");
-const { sendTokenResponse } = require("../utils/jwt");
+const { sendTokenResponse, attachTokenCookie, clearTokenCookie } = require("../utils/jwt");
 const { AppError, catchAsync } = require("../utils/appError");
 const { pushNotification } = require("../utils/notification");
 const { requiredString, emailValue, enumValue } = require("../utils/validation");
@@ -21,6 +21,7 @@ const sendAuthResponse = (user, statusCode, res, message) => {
   delete userObj.password;
   const { signToken } = require("../utils/jwt");
   const token = signToken(user._id);
+  attachTokenCookie(res, token);
   res.status(statusCode).json({
     success: true,
     message,
@@ -123,9 +124,14 @@ const login = catchAsync(async (req, res, next) => {
   sendAuthResponse(user, 200, res, "লগইন সফল।");
 });
 
+const logout = catchAsync(async (req, res) => {
+  clearTokenCookie(res);
+  res.status(200).json({ success: true, message: "লগআউট সফল।" });
+});
+
 const requestOtp = catchAsync(async (req, res) => {
   const { identifier, purpose = "login" } = req.body;
-  const otp = createOtp(identifier, purpose);
+  const otp = await createOtp(identifier, purpose);
   res.status(200).json({
     success: true,
     message: "OTP পাঠানো হয়েছে।",
@@ -271,6 +277,7 @@ const markAllNotificationsRead = catchAsync(async (req, res) => {
 module.exports = {
   register,
   login,
+  logout,
   requestOtp,
   confirmOtp,
   otpLogin,

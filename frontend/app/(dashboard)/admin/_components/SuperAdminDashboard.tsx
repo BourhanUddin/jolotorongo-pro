@@ -18,7 +18,7 @@ import {
 import { adminApi } from "@/lib/api";
 import { formatMoney } from "@/lib/labels";
 import type { Houseboat } from "@/types";
-import { adminBoatImages, fallbackBoats } from "./super-admin-data";
+import { adminBoatImages } from "./super-admin-data";
 
 type DashboardStats = {
   owners?: { total: number; active: number; pending: number };
@@ -34,9 +34,8 @@ function ownerName(owner: Houseboat["ownerId"]) {
   return typeof owner === "object" && owner ? owner.name : "Owner pending";
 }
 
-function statusForBoat(boat: Houseboat, index: number) {
+function statusForBoat(boat: Houseboat) {
   if (!boat.isOperational) return { label: "HOLD", cls: "bg-amber-100 text-amber-700", bar: "bg-amber-400" };
-  if (index === 1) return { label: "BOOKED", cls: "bg-red-100 text-red-700", bar: "bg-red-400" };
   return { label: "AVAILABLE", cls: "bg-emerald-100 text-emerald-700", bar: "bg-violet-700" };
 }
 
@@ -52,12 +51,10 @@ export default function SuperAdminDashboard() {
   });
 
   const stats: DashboardStats = data?.data?.data || {};
-  const boats: Houseboat[] = boatsData?.data?.data?.houseboats?.length
-    ? boatsData.data.data.houseboats
-    : fallbackBoats;
-  const totalBoats = stats.totalBoats || boatsData?.data?.data?.count || stats.totalOperationalHouseboats || fallbackBoats.length;
-  const totalUsers = stats.totalUsers || (stats.owners?.total || 0) + (stats.agents?.total || 0) || 2840;
-  const mtdRevenue = stats.mtdRevenue || 42920;
+  const boats: Houseboat[] = boatsData?.data?.data?.houseboats || [];
+  const totalBoats = stats.totalBoats || boatsData?.data?.data?.count || stats.totalOperationalHouseboats || 0;
+  const totalUsers = stats.totalUsers || (stats.owners?.total || 0) + (stats.agents?.total || 0);
+  const mtdRevenue = stats.mtdRevenue || 0;
 
   return (
     <div className="min-h-screen bg-[#fbf5ff] px-4 pb-8 pt-4 text-[#191225]">
@@ -74,21 +71,20 @@ export default function SuperAdminDashboard() {
           <p className="text-lg font-semibold leading-none">Welcome back,</p>
           <h1 className="mt-1 text-2xl font-bold leading-none">Super Admin</h1>
           <p className="mt-3 max-w-[240px] text-xs leading-relaxed text-white/85">
-            The Jolotorongo fleet is currently operating at 84% capacity. System health is optimal.
+            Review tenants, users, subscriptions, and fleet readiness from one control panel.
           </p>
         </div>
       </section>
 
       <section className="mt-6 grid gap-4">
-        <StatTile icon={<Sailboat size={20} />} label="TOTAL BOATS" value={totalBoats} sub="Active across 4 haors" delta="+12%" />
-        <StatTile icon={<Users size={20} />} label="ACTIVE USERS" value={totalUsers.toLocaleString()} sub="142 currently online" delta="+5%" />
+        <StatTile icon={<Sailboat size={20} />} label="TOTAL BOATS" value={totalBoats} sub={`${stats.totalOperationalHouseboats || 0} operational`} />
+        <StatTile icon={<Users size={20} />} label="USERS" value={totalUsers.toLocaleString()} sub={`${stats.agents?.unverified || 0} agents pending`} />
         <StatTile
           dark
           icon={<WalletCards size={20} />}
           label="MTD REVENUE"
           value={formatMoney(mtdRevenue)}
-          sub="Exceeding target by $8.2k"
-          delta="+24%"
+          sub="From recorded ledger data"
         />
       </section>
 
@@ -109,8 +105,12 @@ export default function SuperAdminDashboard() {
           </Link>
         </div>
         <div className="grid gap-4">
-          {boats.slice(0, 3).map((boat, index) => {
-            const status = statusForBoat(boat, index);
+          {boats.length === 0 ? (
+            <article className="rounded-xl bg-white p-4 text-sm text-slate-500 shadow-sm">
+              No houseboats registered yet.
+            </article>
+          ) : boats.slice(0, 3).map((boat, index) => {
+            const status = statusForBoat(boat);
             return (
               <article key={boat._id} className="overflow-hidden rounded-xl bg-white shadow-sm">
                 <div className="p-3">
@@ -145,10 +145,13 @@ export default function SuperAdminDashboard() {
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold">Platform Alerts</h2>
         <div className="grid gap-2">
-          <MiniAlert tone="violet" title="New Registration" text={`Boat Emerald Wave is pending verification from owner.`} time="2 mins ago" />
-          <MiniAlert tone="green" title="System Healthy" text="Weekly backup completed successfully. All nodes are reporting 99.9% uptime." time="45 mins ago" />
-          <MiniAlert tone="red" title="Revenue Latency" text="Payment gateway TangarPay experiencing 400ms delays in processing." time="1 hour ago" />
-          <MiniAlert tone="slate" title="Update Available" text="Mobile app v1.0.5 is ready for rollout to operators." time="3 hours ago" />
+          {(stats.owners?.pending || 0) > 0 && <MiniAlert tone="violet" title="Owner Approval" text={`${stats.owners?.pending || 0} owner accounts need review.`} time="Live" />}
+          {(stats.agents?.unverified || 0) > 0 && <MiniAlert tone="slate" title="Agent Verification" text={`${stats.agents?.unverified || 0} agents are waiting for verification.`} time="Live" />}
+          {(!stats.owners?.pending && !stats.agents?.unverified) && (
+            <article className="rounded-xl bg-white p-3 text-xs text-slate-500 shadow-sm">
+              No active platform alerts.
+            </article>
+          )}
         </div>
         <Link href="/admin/alerts" className="mt-4 block rounded-xl border border-dashed border-[#cdb8eb] py-3 text-center text-xs font-medium text-[#32157c]">
           View Alert History
@@ -158,12 +161,11 @@ export default function SuperAdminDashboard() {
   );
 }
 
-function StatTile({ icon, label, value, sub, delta, dark = false }: { icon: ReactNode; label: string; value: string | number; sub: string; delta: string; dark?: boolean }) {
+function StatTile({ icon, label, value, sub, dark = false }: { icon: ReactNode; label: string; value: string | number; sub: string; dark?: boolean }) {
   return (
     <article className={`rounded-2xl p-5 shadow-sm ${dark ? "bg-[#563795] text-white" : "bg-white text-[#191225]"}`}>
       <div className="flex items-start justify-between">
         <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${dark ? "bg-white/15" : "bg-[#efe8fb] text-[#32157c]"}`}>{icon}</div>
-        <span className={`text-xs font-bold ${dark ? "text-white" : "text-emerald-500"}`}>{delta} ~</span>
       </div>
       <p className={`mt-4 text-[10px] font-medium tracking-wide ${dark ? "text-white/75" : "text-slate-500"}`}>{label}</p>
       <p className="mt-1 text-3xl font-light">{value}</p>

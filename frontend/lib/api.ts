@@ -5,6 +5,7 @@ const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
+  withCredentials: true,
 });
 
 const cacheKey = (config: { baseURL?: string; url?: string; params?: unknown }) =>
@@ -61,6 +62,7 @@ export default api;
 export const authApi = {
   register: (d: object) => api.post('/auth/register', d),
   login:    (d: object) => api.post('/auth/login', d),
+  logout:   ()          => api.post('/auth/logout'),
   requestOtp: (d: object) => api.post('/auth/otp/request', d),
   verifyOtp:  (d: object) => api.post('/auth/otp/verify', d),
   otpLogin:   (d: object) => api.post('/auth/otp/login', d),
@@ -141,6 +143,13 @@ export const expenseApi = {
   delete: (id: string)      => api.delete(`/expenses/${id}`),
 };
 
+export const invoiceApi = {
+  getTemplate: () => api.get('/invoices/template'),
+  updateTemplate: (d: object) => api.patch('/invoices/template', d),
+  getForBooking: (bookingId: string) => api.get(`/invoices/booking/${bookingId}`),
+  updateDraftForBooking: (bookingId: string, d: object) => api.patch(`/invoices/booking/${bookingId}/draft`, d),
+};
+
 export const adminApi = {
   dashboard:       () => api.get('/admin/dashboard'),
   owners:          (params?: object) => api.get('/admin/boat-owners', { params }),
@@ -160,5 +169,7 @@ export const houseboatApi = {
   getMy:       ()                    => api.get('/houseboat/my'),
   updateMy:    (d: object)           => api.patch('/houseboat/my', d),
   createManager: (d: object)         => api.post('/houseboat/managers', d),
+  updateManager: (managerId: string, d: object) => api.patch(`/houseboat/managers/${managerId}`, d),
+  deleteManager: (managerId: string) => api.delete(`/houseboat/managers/${managerId}`),
   removeAgent: (agentId: string)     => api.delete(`/houseboat/agents/${agentId}`),
 };

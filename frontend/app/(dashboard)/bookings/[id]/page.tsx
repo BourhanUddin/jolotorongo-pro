@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { bookingApi } from '@/lib/api';
+import { bookingApi, invoiceApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -13,6 +13,8 @@ import { useEffect, useState } from 'react';
 import type { Room, User, Houseboat } from '@/types';
 import { MessageCircle, CheckCircle, XCircle, Flag, ArrowLeft } from 'lucide-react';
 
+type InvoiceItemForm = { label: string; amount: string };
+
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuthStore();
@@ -23,6 +25,8 @@ export default function BookingDetailPage() {
   const [advancePaid, setAdvancePaid] = useState('');
   const [cancelReason, setCancelReason] = useState('');
   const [now, setNow] = useState(0);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItemForm[]>([{ label: '', amount: '' }]);
+  const [invoiceDiscount, setInvoiceDiscount] = useState('');
 
   useEffect(() => {
     const refresh = () => setNow(Date.now());
@@ -39,6 +43,32 @@ export default function BookingDetailPage() {
 
   const booking = data?.data?.data?.booking;
   const whatsappLink = data?.data?.data?.whatsappLink;
+  const isOwner = user?.role === 'boat_owner';
+  const isManager = user?.role === 'manager';
+  const isAgent = user?.role === 'agent';
+  const room = booking && typeof booking.roomId === 'object' ? booking.roomId as Room : null;
+  const agent = booking && typeof booking.agentId === 'object' ? booking.agentId as User : null;
+  const houseboat = booking && typeof booking.houseboatId === 'object' ? booking.houseboatId as Houseboat : null;
+  const approvedBy = booking && typeof booking.approvedById === 'object' ? booking.approvedById as User : null;
+
+  const { data: invoiceData } = useQuery({
+    queryKey: ['booking-invoice', id],
+    queryFn: () => invoiceApi.getForBooking(id),
+    enabled: !!id && (isOwner || isManager),
+  });
+  const invoice = invoiceData?.data?.data?.invoice;
+  const canEditDraftInvoice = !!booking && (isOwner || isManager) && !['confirmed', 'completed'].includes(booking.status);
+
+  const defaultInvoiceItems: InvoiceItemForm[] = booking
+    ? (invoice?.items?.length
+        ? invoice.items.map((item: { label: string; amount: number }) => ({ label: item.label, amount: String(item.amount) }))
+        : [
+            { label: `Room ${room?.roomNumber || ''}`, amount: String(booking.basePrice || 0) },
+            { label: 'Extra guest charge', amount: String(booking.extraCharge || 0) },
+          ])
+    : [{ label: '', amount: '' }];
+  const visibleInvoiceItems = invoiceItems[0]?.label || invoiceItems[0]?.amount ? invoiceItems : defaultInvoiceItems;
+  const visibleInvoiceDiscount = invoiceDiscount !== '' ? invoiceDiscount : String(invoice?.discount || booking?.discount || 0);
 
   const confirmMutation = useMutation({
     mutationFn: () => bookingApi.confirm(id, {
@@ -52,6 +82,19 @@ export default function BookingDetailPage() {
     },
     onError: (err: unknown) =>
       toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+  });
+
+  const saveDraftInvoice = useMutation({
+    mutationFn: () => invoiceApi.updateDraftForBooking(id, {
+      items: visibleInvoiceItems.map((item) => ({ label: item.label, amount: Number(item.amount) || 0 })),
+      discount: Number(visibleInvoiceDiscount) || 0,
+    }),
+    onSuccess: () => {
+      toast.success('ড্রাফট ইনভয়েস সেভ হয়েছে');
+      qc.invalidateQueries({ queryKey: ['booking-invoice', id] });
+    },
+    onError: (err: unknown) =>
+      toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ইনভয়েস সেভ করা যায়নি'),
   });
 
   const cancelMutation = useMutation({
@@ -86,14 +129,7 @@ export default function BookingDetailPage() {
     );
   }
 
-  const room      = typeof booking.roomId    === 'object' ? booking.roomId    as Room      : null;
-  const agent     = typeof booking.agentId   === 'object' ? booking.agentId   as User      : null;
-  const houseboat = typeof booking.houseboatId === 'object' ? booking.houseboatId as Houseboat : null;
-  const approvedBy = typeof booking.approvedById === 'object' ? booking.approvedById as User : null;
-
-  const isOwner    = user?.role === 'boat_owner';
-  const isAgent    = user?.role === 'agent';
-  const canConfirm = isOwner && booking.status === 'on_hold';
+  const canConfirm = (isOwner || isManager) && booking.status === 'on_hold';
   const canCancel  = ['on_hold', 'confirmed'].includes(booking.status) && (isOwner || isAgent);
   const canComplete = isOwner && booking.status === 'confirmed';
 
@@ -176,6 +212,63 @@ export default function BookingDetailPage() {
           </div>
         ))}
       </div>
+
+      {canEditDraftInvoice && (
+        <div className="card mb-4 border border-amber-200">
+          <p className="font-semibold text-slate-700 mb-3">ইনভয়েস ড্রাফট</p>
+          <div className="flex flex-col gap-3">
+            {visibleInvoiceItems.map((item, index) => (
+              <div key={index} className="grid grid-cols-[1fr_96px] gap-2">
+                <input
+                  className="input text-sm"
+                  value={item.label}
+                  onChange={(event) => {
+                    const next = [...visibleInvoiceItems];
+                    next[index] = { ...next[index], label: event.target.value };
+                    setInvoiceItems(next);
+                  }}
+                  placeholder="Item"
+                />
+                <input
+                  className="input text-sm"
+                  type="number"
+                  value={item.amount}
+                  onChange={(event) => {
+                    const next = [...visibleInvoiceItems];
+                    next[index] = { ...next[index], amount: event.target.value };
+                    setInvoiceItems(next);
+                  }}
+                  placeholder="৳"
+                />
+              </div>
+            ))}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setInvoiceItems([...visibleInvoiceItems, { label: '', amount: '' }])}
+                className="btn btn-outline text-xs"
+              >
+                আইটেম যোগ
+              </button>
+              <input
+                className="input text-sm"
+                type="number"
+                value={visibleInvoiceDiscount}
+                onChange={(event) => setInvoiceDiscount(event.target.value)}
+                placeholder="Discount"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => saveDraftInvoice.mutate()}
+              disabled={saveDraftInvoice.isPending || visibleInvoiceItems.length === 0}
+              className="btn btn-primary btn-full"
+            >
+              {saveDraftInvoice.isPending ? <Spinner size="sm" /> : 'ড্রাফট ইনভয়েস সেভ'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* WhatsApp send */}
       {whatsappLink && (

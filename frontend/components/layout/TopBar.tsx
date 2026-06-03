@@ -21,6 +21,15 @@ export default function TopBar() {
 
   const notifications: Notification[] = notifData?.data?.data?.notifications || [];
   const unread = notifications.filter(n => !n.isRead).length;
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Local cleanup still runs if network fails.
+    }
+    logout();
+    router.replace('/login');
+  };
 
   if (user?.role === 'super_admin') {
     return (
@@ -51,7 +60,7 @@ export default function TopBar() {
                   <User size={14} /> Create User
                 </button>
                 <button
-                  onClick={() => { logout(); router.replace('/login'); }}
+                  onClick={handleLogout}
                   className="flex min-h-0 w-full items-center gap-2 border-t border-slate-100 px-4 py-2.5 text-left text-sm text-red-500 hover:bg-red-50"
                 >
                   Logout
@@ -140,7 +149,7 @@ export default function TopBar() {
 
                   <div className="border-t border-slate-100">
                     <button
-                      onClick={() => { logout(); router.replace('/login'); }}
+                      onClick={handleLogout}
                       className="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 min-h-0"
                     >
                       🚪 লগআউট

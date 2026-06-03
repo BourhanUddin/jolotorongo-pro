@@ -207,6 +207,18 @@ export interface BookingRequest {
   createdAt: string;
 }
 
+export interface InvoiceTemplate {
+  _id: string;
+  houseboatId: string;
+  title: string;
+  businessName: string;
+  phone: string;
+  address: string;
+  paymentInstructions: string;
+  terms: string;
+  footerNote: string;
+}
+
 // ─── API Response ─────────────────────────────────────────────
 export interface ApiResponse<T = unknown> {
   success: boolean;

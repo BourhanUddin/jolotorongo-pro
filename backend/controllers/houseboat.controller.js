@@ -120,4 +120,62 @@ const createManager = catchAsync(async (req, res, next) => {
   });
 });
 
-module.exports = { getFleetHouseboats, getMyHouseboat, updateMyHouseboat, removeAgent, createManager };
+const updateManager = catchAsync(async (req, res, next) => {
+  objectId(req.params.managerId, "ম্যানেজার আইডি");
+  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
+
+  const manager = await User.findOne({
+    _id: req.params.managerId,
+    role: "manager",
+    joinedHouseboatId: houseboat._id,
+  }).select("+password");
+  if (!manager) return next(new AppError("ম্যানেজার পাওয়া যায়নি।", 404));
+
+  if (req.body.name !== undefined) manager.name = requiredString(req.body.name, "ম্যানেজারের নাম", 120);
+  if (req.body.email !== undefined) {
+    const email = emailValue(req.body.email);
+    const existing = await User.findOne({ email, _id: { $ne: manager._id } });
+    if (existing) return next(new AppError("এই ইমেইল ইতিমধ্যে নিবন্ধিত।", 400));
+    manager.email = email;
+  }
+  if (req.body.phone !== undefined) manager.phone = optionalString(req.body.phone, 40) || undefined;
+  if (req.body.status !== undefined) {
+    if (!["active", "suspended"].includes(req.body.status)) {
+      return next(new AppError("ম্যানেজার স্ট্যাটাস অবৈধ।", 400));
+    }
+    manager.status = req.body.status;
+  }
+  if (req.body.password !== undefined) manager.password = requiredString(req.body.password, "পাসওয়ার্ড", 128);
+
+  await manager.save();
+  const safeManager = manager.toObject();
+  delete safeManager.password;
+
+  res.status(200).json({ success: true, message: "ম্যানেজার আপডেট হয়েছে।", data: { manager: safeManager } });
+});
+
+const deleteManager = catchAsync(async (req, res, next) => {
+  objectId(req.params.managerId, "ম্যানেজার আইডি");
+  const houseboat = await Houseboat.findOne({ ownerId: req.user._id });
+  if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
+
+  const manager = await User.findOneAndDelete({
+    _id: req.params.managerId,
+    role: "manager",
+    joinedHouseboatId: houseboat._id,
+  });
+  if (!manager) return next(new AppError("ম্যানেজার পাওয়া যায়নি।", 404));
+
+  res.status(200).json({ success: true, message: "ম্যানেজার ডিলিট হয়েছে।" });
+});
+
+module.exports = {
+  getFleetHouseboats,
+  getMyHouseboat,
+  updateMyHouseboat,
+  removeAgent,
+  createManager,
+  updateManager,
+  deleteManager,
+};

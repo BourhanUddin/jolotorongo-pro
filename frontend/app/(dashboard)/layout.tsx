@@ -3,20 +3,35 @@ import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth.store';
+import { authApi } from '@/lib/api';
 import TopBar from '@/components/layout/TopBar';
 import BottomNav from '@/components/layout/BottomNav';
 import { InfoCard, Spinner } from '@/components/ui';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, token } = useAuthStore();
+  const { user, hydrated, setUser, logout } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!token || !user) { router.replace('/login'); }
-  }, [token, user, router]);
+    if (!hydrated || user) return;
+    let cancelled = false;
+    authApi.me()
+      .then((res) => {
+        if (!cancelled) setUser(res.data.data.user);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          logout();
+          router.replace('/login');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, user, setUser, logout, router]);
 
-  if (!user) {
+  if (!hydrated || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Spinner size="lg" />

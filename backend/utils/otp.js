@@ -19,8 +19,30 @@ const makeKey = (identifier, purpose) => `${purpose}:${normalizeIdentifier(ident
 
 const hash = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
-const createOtp = (identifier, purpose = "login") => {
+const sendOtp = async ({ identifier, type, code, purpose }) => {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(`OTP (${purpose}) for ${identifier}: ${code}`);
+    return;
+  }
+
+  const endpoint = type === "email" ? process.env.OTP_EMAIL_WEBHOOK_URL : process.env.OTP_SMS_WEBHOOK_URL;
+  if (!endpoint) {
+    throw new AppError("OTP পাঠানোর সার্ভিস কনফিগার করা নেই।", 500);
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier, type, code, purpose }),
+  });
+  if (!response.ok) {
+    throw new AppError("OTP পাঠানো যায়নি। আবার চেষ্টা করুন।", 502);
+  }
+};
+
+const createOtp = async (identifier, purpose = "login") => {
   const normalized = normalizeIdentifier(identifier);
+  const type = identifierType(normalized);
   const code = process.env.DEMO_OTP_CODE || (process.env.NODE_ENV === "production"
     ? String(crypto.randomInt(100000, 999999))
     : "123456");
@@ -30,13 +52,11 @@ const createOtp = (identifier, purpose = "login") => {
     attempts: 0,
   });
 
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`OTP (${purpose}) for ${normalized}: ${code}`);
-  }
+  await sendOtp({ identifier: normalized, type, code, purpose });
 
   return {
     identifier: normalized,
-    type: identifierType(normalized),
+    type,
     demoOtp: process.env.NODE_ENV === "production" ? undefined : code,
   };
 };

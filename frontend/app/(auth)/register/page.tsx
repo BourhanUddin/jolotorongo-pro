@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff } from 'lucide-react';
 import { Field, Spinner, InfoCard } from '@/components/ui';
+import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 import type { User } from '@/types';
 
 type Role = 'boat_owner' | 'agent';
@@ -32,12 +33,12 @@ export default function RegisterPage() {
   const up = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
   const otpIdentifier = otpMethod === 'email' ? form.email : form.phone;
 
-  const finishAuth = (res: { data: { token: string; data: { user: User }; redirectTo?: string } }, message: string) => {
+  const finishAuth = useCallback((res: { data: { token: string; data: { user: User }; redirectTo?: string } }, message: string) => {
     const { token, data, redirectTo } = res.data;
     setAuth(data.user, token);
     toast.success(message);
     router.replace(redirectTo || '/dashboard');
-  };
+  }, [router, setAuth]);
 
   const validateBase = () => {
     if (!form.name || !form.password) {
@@ -102,15 +103,13 @@ export default function RegisterPage() {
     }
   };
 
-  const googleDemoRegister = async () => {
+  const handleGoogleCredential = useCallback(async (credential: string) => {
     setLoading(true);
     try {
       const res = await authApi.google({
-        email: `demo.google.${form.role}@jolotorongo.com`,
-        name: form.name || 'Google Demo User',
+        credential,
         phone: form.phone || undefined,
         role: form.role,
-        googleId: `demo-google-${form.role}`,
       });
       finishAuth(res, 'Google অ্যাকাউন্ট প্রস্তুত');
     } catch (err: unknown) {
@@ -119,7 +118,7 @@ export default function RegisterPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [finishAuth, form.phone, form.role]);
 
   const resetOtp = () => {
     setOtpSent(false);
@@ -230,9 +229,7 @@ export default function RegisterPage() {
         <div className="h-px flex-1 bg-slate-200" />
       </div>
 
-      <button type="button" onClick={googleDemoRegister} disabled={loading} className="btn btn-outline btn-full">
-        Google দিয়ে অ্যাকাউন্ট তৈরি
-      </button>
+      <GoogleSignInButton onCredential={handleGoogleCredential} disabled={loading} label="Google দিয়ে অ্যাকাউন্ট তৈরি" />
 
       <div className="mt-5 text-center">
         <p className="text-sm text-slate-500">

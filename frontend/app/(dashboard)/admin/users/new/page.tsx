@@ -8,7 +8,6 @@ import toast from "react-hot-toast";
 import { ArrowLeft, Building2, Info, Mail, Sailboat, Search, UserRound, UserRoundPlus, X } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type { Houseboat, Role } from "@/types";
-import { fallbackBoats } from "../../_components/super-admin-data";
 
 const roles: { value: Role; title: string; sub: string }[] = [
   { value: "boat_owner", title: "Admin", sub: "Boat Owner" },
@@ -26,19 +25,19 @@ export default function CreateUserPage() {
   const [selectedBoatId, setSelectedBoatId] = useState<string>("");
 
   const { data } = useQuery({ queryKey: ["admin-houseboats-for-user"], queryFn: () => adminApi.houseboats() });
-  const boats: Houseboat[] = data?.data?.data?.houseboats?.length ? data.data.data.houseboats : fallbackBoats;
-  const selectedBoat = boats.find((boat) => boat._id === selectedBoatId) || boats[0];
 
   const boatOptions = useMemo(() => {
+    const boats: Houseboat[] = data?.data?.data?.houseboats || [];
     return boats.filter((boat) => `${boat.name} ${boat.location}`.toLowerCase().includes(boatQuery.toLowerCase()));
-  }, [boats, boatQuery]);
+  }, [data, boatQuery]);
+  const selectedBoat = boatOptions.find((boat) => boat._id === selectedBoatId) || boatOptions[0];
 
   const mutation = useMutation({
     mutationFn: () =>
       adminApi.createUser({
         name,
         email,
-        phone: phone || "01700000000",
+        phone: phone || undefined,
         role,
         houseboatIds: ["agent", "manager"].includes(role) && selectedBoat ? [selectedBoat._id] : [],
       }),

@@ -207,9 +207,8 @@ const checkAvailability = catchAsync(async (req, res, next) => {
   const houseboat = await Houseboat.findById(houseboatId);
   if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
   if (req.user.role === "agent") {
-    const joined = String(req.user.joinedHouseboatId || "") === String(houseboat._id);
     const approved = houseboat.approvedAgents.some((agentId) => String(agentId) === String(req.user._id));
-    if (!houseboat.isOperational || !joined || !approved) {
+    if (!houseboat.isOperational || !approved) {
       return next(new AppError("এই হাউসবোটের availability দেখার অনুমতি নেই।", 403));
     }
   }

@@ -14,6 +14,7 @@ const bookingRoutes = require("./routes/booking.routes");
 const bookingRequestRoutes = require("./routes/bookingRequest.routes");
 const tourRoutes = require("./routes/tour.routes");
 const expenseRoutes = require("./routes/expense.routes");
+const invoiceRoutes = require("./routes/invoice.routes");
 const adminRoutes = require("./routes/admin.routes");
 const houseboatRoutes = require("./routes/houseboat.routes");
 
@@ -70,6 +71,7 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/booking-requests", bookingRequestRoutes);
 app.use("/api/tours", tourRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/invoices", invoiceRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/houseboat", houseboatRoutes);
 

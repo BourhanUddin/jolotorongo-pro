@@ -1,6 +1,16 @@
 const User = require("../models/User");
+const Houseboat = require("../models/Houseboat");
 const { verifyToken } = require("../utils/jwt");
 const { AppError, catchAsync } = require("../utils/appError");
+
+const cookieValue = (cookieHeader, name) => {
+  if (!cookieHeader) return null;
+  return cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1) || null;
+};
 
 // ─── Protect: verify JWT ─────────────────────────────────────
 const protect = catchAsync(async (req, res, next) => {
@@ -11,6 +21,11 @@ const protect = catchAsync(async (req, res, next) => {
     req.headers.authorization.startsWith("Bearer ")
   ) {
     token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (!token) {
+    const rawCookieToken = cookieValue(req.headers.cookie, "jt_token");
+    token = rawCookieToken ? decodeURIComponent(rawCookieToken) : null;
   }
 
   if (!token) {
@@ -43,12 +58,24 @@ const restrictTo = (...roles) =>
 
 // ─── Subscription wall (boat_owner only) ─────────────────────
 // Blocks any operational action if subscription is not active.
-const requireActiveSubscription = (req, res, next) => {
+const requireActiveSubscription = catchAsync(async (req, res, next) => {
   const user = req.user;
 
-  if (user.role !== "boat_owner") return next();
+  let owner = user;
+  if (user.role === "manager") {
+    if (!user.joinedHouseboatId) {
+      return next(new AppError("ম্যানেজারের হাউসবোট অ্যাসাইন করা নেই।", 403));
+    }
+    const houseboat = await Houseboat.findById(user.joinedHouseboatId).populate("ownerId");
+    if (!houseboat || !houseboat.ownerId) {
+      return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
+    }
+    owner = houseboat.ownerId;
+  }
 
-  const sub = user.subscription;
+  if (!["boat_owner", "manager"].includes(user.role)) return next();
+
+  const sub = owner.subscription;
   const now = new Date();
   const active =
     sub?.isActive &&
@@ -66,7 +93,7 @@ const requireActiveSubscription = (req, res, next) => {
   }
 
   next();
-};
+});
 
 // ─── Verified agent guard ────────────────────────────────────
 // Blocks agent actions until super_admin has verified their account.

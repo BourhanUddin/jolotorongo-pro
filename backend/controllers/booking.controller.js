@@ -494,8 +494,6 @@ const getManifest = catchAsync(async (req, res, next) => {
     const houseboat = await getManagedHouseboat(user);
     if (!houseboat) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
     houseboatId = houseboat._id;
-  } else if (user.role === "agent") {
-    houseboatId = user.joinedHouseboatId;
   }
 
   if (!houseboatId && user.role !== "super_admin") {

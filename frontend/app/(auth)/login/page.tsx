@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/auth.store';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff } from 'lucide-react';
 import { Field, InfoCard, Spinner } from '@/components/ui';
+import GoogleSignInButton from '@/components/auth/GoogleSignInButton';
 import type { User } from '@/types';
 
 type Mode = 'password' | 'otp';
@@ -21,12 +22,12 @@ export default function LoginPage() {
   const { setAuth } = useAuthStore();
   const router = useRouter();
 
-  const finishLogin = (res: { data: { token: string; data: { user: User }; redirectTo?: string } }, message: string) => {
+  const finishLogin = useCallback((res: { data: { token: string; data: { user: User }; redirectTo?: string } }, message: string) => {
     const { token, data, redirectTo } = res.data;
     setAuth(data.user, token);
     toast.success(message);
     router.replace(redirectTo || '/dashboard');
-  };
+  }, [router, setAuth]);
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,10 +77,10 @@ export default function LoginPage() {
     }
   };
 
-  const googleDemoLogin = async () => {
+  const handleGoogleCredential = useCallback(async (credential: string) => {
     setLoading(true);
     try {
-      const res = await authApi.google({ email: 'demo.google@jolotorongo.com', name: 'Google Demo User', googleId: 'demo-google-user' });
+      const res = await authApi.google({ credential });
       finishLogin(res, 'Google লগইন সফল');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Google লগইন ব্যর্থ';
@@ -87,7 +88,7 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [finishLogin]);
 
   return (
     <div className="fade-in">
@@ -176,9 +177,7 @@ export default function LoginPage() {
         <div className="h-px flex-1 bg-slate-200" />
       </div>
 
-      <button type="button" onClick={googleDemoLogin} disabled={loading} className="btn btn-outline btn-full">
-        Google দিয়ে চালু করুন
-      </button>
+      <GoogleSignInButton onCredential={handleGoogleCredential} disabled={loading} />
 
       <div className="mt-6 text-center">
         <p className="text-sm text-slate-500">
@@ -189,21 +188,6 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="mt-4 bg-slate-50 rounded-xl p-3 border border-slate-100">
-        <p className="text-xs text-slate-500 font-medium mb-1.5">ডেমো সুপার অ্যাডমিন:</p>
-        <p className="text-xs text-slate-600">Email: admin@jolotorongo.com</p>
-        <p className="text-xs text-slate-600">Password: Admin@1234</p>
-        <button
-          type="button"
-          onClick={() => {
-            setMode('password');
-            setForm({ identifier: 'admin@jolotorongo.com', password: 'Admin@1234', otp: '' });
-          }}
-          className="mt-2 text-xs font-semibold text-sky-700"
-        >
-          Fill admin demo
-        </button>
-      </div>
     </div>
   );
 }

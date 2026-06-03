@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { EllipsisVertical, MapPin, Plus, Search, UserRound } from "lucide-react";
 import { adminApi } from "@/lib/api";
 import type { Houseboat } from "@/types";
-import { adminBoatImages, fallbackBoats } from "../_components/super-admin-data";
+import { adminBoatImages } from "../_components/super-admin-data";
 
 function ownerName(owner: Houseboat["ownerId"]) {
   return typeof owner === "object" && owner ? owner.name : "Owner pending";
@@ -17,16 +17,16 @@ export default function FleetInventoryPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const { data } = useQuery({ queryKey: ["admin-houseboats"], queryFn: () => adminApi.houseboats() });
-  const boats: Houseboat[] = data?.data?.data?.houseboats?.length ? data.data.data.houseboats : fallbackBoats;
 
   const filtered = useMemo(() => {
-    return boats.filter((boat, index) => {
-      const status = !boat.isOperational ? "maintenance" : index === 2 ? "booked" : "active";
+    const boats: Houseboat[] = data?.data?.data?.houseboats || [];
+    return boats.filter((boat) => {
+      const status = !boat.isOperational ? "maintenance" : "active";
       const matchesFilter = filter === "all" || filter === status;
       const term = `${boat.name} ${boat.location} ${ownerName(boat.ownerId)}`.toLowerCase();
       return matchesFilter && term.includes(search.toLowerCase());
     });
-  }, [boats, filter, search]);
+  }, [data, filter, search]);
 
   return (
     <div className="min-h-screen bg-[#fbf5ff] px-4 pb-24 pt-4 text-[#191225]">
@@ -68,10 +68,8 @@ export default function FleetInventoryPage() {
       <div className="mt-6 grid gap-6">
         {filtered.map((boat, index) => {
           const status = !boat.isOperational
-            ? { label: "MAINTENANCE", cls: "bg-amber-100 text-amber-800", occupancy: "0%", revenue: "$0" }
-            : index === 2
-              ? { label: "BOOKED", cls: "bg-red-100 text-red-700", occupancy: "100%", revenue: "$5.8k" }
-              : { label: "AVAILABLE", cls: "bg-emerald-100 text-emerald-800", occupancy: "88%", revenue: "$4.2k" };
+            ? { label: "HOLD", cls: "bg-amber-100 text-amber-800" }
+            : { label: "OPERATIONAL", cls: "bg-emerald-100 text-emerald-800" };
           return (
             <article key={boat._id} className="overflow-hidden rounded-xl bg-white shadow-sm">
               <div className="relative">
@@ -96,12 +94,12 @@ export default function FleetInventoryPage() {
                 <div className="my-5 h-px bg-slate-200" />
                 <div className="grid grid-cols-2 text-sm">
                   <div>
-                    <p className="text-xs tracking-widest text-slate-500">OCCUPANCY</p>
-                    <p className="mt-1 text-[#32157c]">{status.occupancy}</p>
+                    <p className="text-xs tracking-widest text-slate-500">STATUS</p>
+                    <p className="mt-1 text-[#32157c]">{status.label}</p>
                   </div>
                   <div>
-                    <p className="text-xs tracking-widest text-slate-500">REVENUE</p>
-                    <p className="mt-1 text-[#32157c]">{status.revenue}</p>
+                    <p className="text-xs tracking-widest text-slate-500">AGENTS</p>
+                    <p className="mt-1 text-[#32157c]">{boat.approvedAgents?.length || 0}</p>
                   </div>
                 </div>
                 <button className="mt-6 w-full rounded-lg border-2 border-[#32157c] py-3 text-sm font-medium text-[#32157c]">
@@ -111,6 +109,11 @@ export default function FleetInventoryPage() {
             </article>
           );
         })}
+        {filtered.length === 0 && (
+          <article className="rounded-xl bg-white p-5 text-sm text-slate-500 shadow-sm">
+            No houseboats found.
+          </article>
+        )}
       </div>
       <Link href="/admin/users/new" className="fixed bottom-24 right-6 flex h-14 w-14 items-center justify-center rounded-xl bg-[#563795] text-white shadow-xl">
         <Plus size={30} />

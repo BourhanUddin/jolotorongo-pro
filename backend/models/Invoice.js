@@ -23,6 +23,7 @@ const invoiceSchema = new mongoose.Schema(
     },
     invoiceNo: { type: String, required: true, unique: true },
     items: [invoiceItemSchema],
+    status: { type: String, enum: ["draft", "final", "void"], default: "final" },
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },
     agentCommission: { type: Number, default: 0 },
