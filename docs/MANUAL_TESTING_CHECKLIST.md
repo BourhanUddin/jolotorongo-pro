@@ -43,10 +43,11 @@ Create Room A1.
 - [ ] Add room page loads active fleet vessels.
 - [ ] `Assign to Houseboat` dropdown pre-selects the active fleet vessel.
 - [ ] Changing vessel updates selected vessel state.
-- [ ] AC Room Price is mandatory.
-- [ ] Non-AC Room Price is mandatory.
+- [ ] Admin selects AC or Non-AC room mode.
+- [ ] Only one room price is mandatory for selected mode.
 - [ ] Single image upload works.
 - [ ] Multiple image upload works.
+- [ ] Uploaded image appears on room cards and booking/agent availability cards.
 - [ ] Amenities can be added/edited.
 - [ ] Services can be added/edited.
 
@@ -105,7 +106,11 @@ Test requested slots:
 - [ ] Agent sends join request to Tenant A.
 - [ ] Tenant A owner approves.
 - [ ] Agent can view Tenant A availability.
-- [ ] Agent cannot view Tenant B availability.
+- [ ] Agent sends join request to Tenant B.
+- [ ] Tenant B owner approves.
+- [ ] Agent can filter by date and view available rooms from Tenant A and Tenant B.
+- [ ] Agent cannot view unapproved Tenant C availability.
+- [ ] Agent cannot view boat booking history.
 - [ ] Agent cannot access Create Tour.
 - [ ] Agent cannot directly book or hold a room.
 - [ ] Agent can submit booking request for Tenant A.
@@ -122,7 +127,9 @@ Test requested slots:
 
 - [ ] Admin/Manager selects vessel and tour date.
 - [ ] Booking matrix shows rooms assigned to configured tour.
-- [ ] Matrix falls back to vessel rooms when no tour exists.
+- [ ] Booking matrix shows no rooms when no active tour exists for selected date.
+- [ ] Booking matrix never falls back to all vessel rooms.
+- [ ] Tour Date equals Booking Date for rooms to appear.
 - [ ] Booked room is visually locked.
 - [ ] Maintenance room is visually locked.
 - [ ] Available room can be selected.

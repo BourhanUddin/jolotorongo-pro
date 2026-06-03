@@ -95,6 +95,8 @@ Expected:
 - backend verifies the selected houseboat belongs to current Admin/Manager
 - `houseboatId` is never blindly trusted
 - `basePrice` is maintained as AC fallback for backward compatibility
+- each new room may use one climate mode through `climate: "ac" | "non_ac"`
+- uploaded files are persisted to `images[]` and displayed by frontend room cards
 
 ### GET /api/rooms?houseboatId=...
 
@@ -167,10 +169,32 @@ Query:
 
 Expected:
 
-- returns configured tour if one exists for date
-- returns assigned tour rooms; falls back to vessel rooms when no tour exists
+- returns assigned tour rooms only when an active tour exactly matches `checkIn/checkOut`
+- returns `rooms: []` when no active tour exists for selected date
+- never falls back to all vessel rooms
 - locks booked/on_hold/maintenance rooms
 - agents can read only approved network availability
+
+## Agent Availability
+
+### GET /api/agents/available-rooms
+
+Agent only.
+
+Query:
+
+```http
+?checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD
+```
+
+Expected:
+
+- agent must be globally verified
+- agent may be approved for multiple boats
+- access is derived from `Houseboat.approvedAgents[]`
+- returns grouped available rooms across approved boats
+- each group requires an active Tour matching the exact 2D/1N slot
+- no boat booking history is returned
 
 ## Bookings
 

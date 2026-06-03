@@ -16,6 +16,10 @@ api.interceptors.request.use((config) => {
     const token = localStorage.getItem('jt_token');
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    config.headers?.delete?.('Content-Type');
+    config.headers?.delete?.('content-type');
+  }
   return config;
 });
 
@@ -82,6 +86,7 @@ export const agentApi = {
   listHouseboats:      ()          => api.get('/agents/houseboats'),
   sendJoinRequest:     (d: object) => api.post('/agents/join-request', d),
   myJoinRequests:      ()          => api.get('/agents/join-requests/my'),
+  availableRooms:      (params: { checkIn: string; checkOut: string }) => api.get('/agents/available-rooms', { params }),
   incomingRequests:    ()          => api.get('/agents/join-requests/incoming'),
   approveRequest:      (id: string) => api.patch(`/agents/join-requests/${id}/approve`),
   rejectRequest:       (id: string, d: object) => api.patch(`/agents/join-requests/${id}/reject`, d),
@@ -93,8 +98,8 @@ export const agentApi = {
 export const roomApi = {
   list:           (params?: { houseboatId?: string }) => api.get('/rooms', { params }),
   get:            (id: string) => api.get(`/rooms/${id}`),
-  create:         (d: object | FormData) => api.post('/rooms', d, d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
-  update:         (id: string, d: object | FormData) => api.patch(`/rooms/${id}`, d, d instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined),
+  create:         (d: object | FormData) => api.post('/rooms', d),
+  update:         (id: string, d: object | FormData) => api.patch(`/rooms/${id}`, d),
   toggle:         (id: string) => api.patch(`/rooms/${id}/toggle-active`),
   availability:   (houseboatId: string, checkIn: string, checkOut: string) =>
     api.get('/rooms/availability', { params: { houseboatId, checkIn, checkOut } }),

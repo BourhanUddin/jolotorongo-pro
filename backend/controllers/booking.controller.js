@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const Room = require("../models/Room");
 const Houseboat = require("../models/Houseboat");
+const Tour = require("../models/Tour");
 const { AppError, catchAsync } = require("../utils/appError");
 const { generateBookingConfirmationLink } = require("../services/whatsapp.service");
 const { getTwoDaySlot, activeOverlapFilter, addDays, startOfDay } = require("../utils/bookingSlot");
@@ -39,14 +40,31 @@ const findOverlappingBooking = ({ roomId, checkIn, checkOut, excludeBookingId })
   Booking.findOne(activeOverlapFilter({ roomId, checkIn, checkOut, excludeBookingId }))
     .select("status expiresAt checkIn checkOut customerName");
 
+const findActiveTourRoom = ({ houseboatId, roomId, checkIn, checkOut }) =>
+  Tour.findOne({
+    houseboatId,
+    status: "scheduled",
+    checkIn,
+    checkOut,
+    roomIds: roomId,
+  }).select("_id title");
+
 const resolveRoomPrice = (room, requestedMode) => {
+  const existingModes = [
+    room.acRoomPrice > 0 ? "ac" : null,
+    room.nonAcRoomPrice > 0 ? "non_ac" : null,
+  ].filter(Boolean);
+  const roomClimate = room.climate || (existingModes.length === 1 ? existingModes[0] : null);
   const pricingMode = requestedMode
     ? enumValue(requestedMode, ["ac", "non_ac"], "রুম মূল্য ধরন")
-    : "ac";
+    : roomClimate || "ac";
+  if (roomClimate && pricingMode !== roomClimate) {
+    throw new AppError("এই রুমে নির্বাচিত AC/Non-AC ধরন নেই।", 400);
+  }
   const fallbackPrice = room.basePrice || room.acRoomPrice || room.nonAcRoomPrice || 0;
   const basePrice = pricingMode === "non_ac"
-    ? room.nonAcRoomPrice ?? fallbackPrice
-    : room.acRoomPrice ?? fallbackPrice;
+    ? (room.nonAcRoomPrice > 0 ? room.nonAcRoomPrice : fallbackPrice)
+    : (room.acRoomPrice > 0 ? room.acRoomPrice : fallbackPrice);
   return { pricingMode, basePrice };
 };
 
@@ -100,6 +118,16 @@ const placeHold = catchAsync(async (req, res, next) => {
   const slot = getTwoDaySlot({ checkIn, checkOut });
   if (!slot) return next(new AppError("চেক-ইন তারিখ দিন।", 400));
   if (slot.error) return next(new AppError(slot.error, 400));
+
+  const activeTour = await findActiveTourRoom({
+    houseboatId: houseboat._id,
+    roomId,
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+  });
+  if (!activeTour) {
+    return next(new AppError("এই তারিখে এই রুমের কোনো সক্রিয় ট্যুর নেই।", 400));
+  }
 
   const overlapping = await findOverlappingBooking({
     roomId,
@@ -196,6 +224,16 @@ const createDirectBooking = catchAsync(async (req, res, next) => {
   const slot = getTwoDaySlot({ checkIn, checkOut });
   if (!slot) return next(new AppError("চেক-ইন তারিখ দিন।", 400));
   if (slot.error) return next(new AppError(slot.error, 400));
+
+  const activeTour = await findActiveTourRoom({
+    houseboatId: houseboat._id,
+    roomId,
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+  });
+  if (!activeTour) {
+    return next(new AppError("এই তারিখে এই রুমের কোনো সক্রিয় ট্যুর নেই।", 400));
+  }
 
   const overlapping = await findOverlappingBooking({
     roomId,
@@ -427,7 +465,7 @@ const getBookings = catchAsync(async (req, res, next) => {
   const skip = (safePage - 1) * safeLimit;
   const [bookings, total] = await Promise.all([
     Booking.find(filter)
-      .populate("roomId", "roomNumber roomType acRoomPrice nonAcRoomPrice basePrice")
+      .populate("roomId", "roomNumber roomType climate acRoomPrice nonAcRoomPrice basePrice images amenities services maxCapacity description")
       .populate("agentId", "name phone")
       .sort("-createdAt")
       .skip(skip)
@@ -516,7 +554,7 @@ const getManifest = catchAsync(async (req, res, next) => {
 const getBooking = catchAsync(async (req, res, next) => {
   objectId(req.params.id, "বুকিং আইডি");
   const booking = await Booking.findById(req.params.id)
-    .populate("roomId", "roomNumber roomType acRoomPrice nonAcRoomPrice basePrice")
+    .populate("roomId", "roomNumber roomType climate acRoomPrice nonAcRoomPrice basePrice images amenities services maxCapacity description")
     .populate("agentId", "name phone email")
     .populate("approvedById", "name")
     .populate("houseboatId", "name location");

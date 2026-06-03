@@ -42,6 +42,8 @@ The current backend stack is Node.js, Express, MongoDB, Mongoose, JWT auth, Mult
 - Default selected vessel is the user's active fleet vessel.
 - Room supports:
   - single/multiple image uploads
+  - saved `images[]` displayed in room cards and booking/agent room cards
+  - one climate mode per room: `ac` or `non_ac`
   - `acRoomPrice`
   - `nonAcRoomPrice`
   - `extraPersonPrice`
@@ -66,12 +68,15 @@ The current backend stack is Node.js, Express, MongoDB, Mongoose, JWT auth, Mult
 - Admin/Manager selects rooms assigned to that Tour instance.
 - No booking buttons or booking workflow are allowed inside Create Tour.
 - Selected tour rooms initialize as available for that scheduled 2D/1N date unless blocked by actual bookings.
+- Booking matrix must show rooms only for an active scheduled Tour with exact `checkIn/checkOut` equality to selected Booking date.
+- If no active Tour exists for the selected date, no rooms are shown.
 
 ### 4.4 Booking Operations
 
 #### Admin / Manager
 
 - Booking page displays a date-based room matrix for selected vessel and tour date.
+- Booking page does not fall back to all vessel rooms when no Tour exists.
 - Assigned rooms show real-time status:
   - Available
   - On Hold
@@ -90,7 +95,10 @@ The current backend stack is Node.js, Express, MongoDB, Mongoose, JWT auth, Mult
 
 - Agent cannot create Tours.
 - Agent cannot directly book or hold/lock rooms.
-- Agent can only view booking availability for approved tenant network.
+- Agent can only view booking availability for approved tenant networks.
+- Agent approval is multi-boat and stored in `Houseboat.approvedAgents[]`.
+- `User.joinedHouseboatId` is backward-compatible only and must not limit multi-boat approval.
+- Agent can filter one 2D/1N date and see available rooms across all approved boats with active Tours on that exact date.
 - Agent submits BookingRequest with:
   - customer name/contact/address
   - guest count
@@ -99,6 +107,8 @@ The current backend stack is Node.js, Express, MongoDB, Mongoose, JWT auth, Mult
   - note
   - calculated agent commission
 - Agent can mark a pending request as `paymentConfirmedByAgent`.
+- Agent cannot see boat booking history or other agents' bookings.
+- Agent can see only own booking requests, own approved bookings, and commission.
 - Room status remains available until Admin/Manager approves the request.
 - Admin/Manager approval creates a confirmed Booking and marks room booked.
 

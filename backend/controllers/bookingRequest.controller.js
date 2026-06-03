@@ -3,6 +3,7 @@ const BookingRequest = require("../models/BookingRequest");
 const Booking = require("../models/Booking");
 const Houseboat = require("../models/Houseboat");
 const Room = require("../models/Room");
+const Tour = require("../models/Tour");
 const { AppError, catchAsync } = require("../utils/appError");
 const { pushNotification } = require("../utils/notification");
 const { getTwoDaySlot, activeOverlapFilter } = require("../utils/bookingSlot");
@@ -13,12 +14,40 @@ const { recordBookingRevenue } = require("../utils/revenueLedger");
 
 const COMMISSION_RATE = 0.1;
 
+const resolveRoomPrice = (room, requestedMode) => {
+  const existingModes = [
+    room.acRoomPrice > 0 ? "ac" : null,
+    room.nonAcRoomPrice > 0 ? "non_ac" : null,
+  ].filter(Boolean);
+  const roomClimate = room.climate || (existingModes.length === 1 ? existingModes[0] : null);
+  const pricingMode = requestedMode
+    ? enumValue(requestedMode, ["ac", "non_ac"], "রুম মূল্য ধরন")
+    : roomClimate || "ac";
+  if (roomClimate && pricingMode !== roomClimate) {
+    throw new AppError("এই রুমে নির্বাচিত AC/Non-AC ধরন নেই।", 400);
+  }
+  const fallbackPrice = room.basePrice || room.acRoomPrice || room.nonAcRoomPrice || 0;
+  const basePrice = pricingMode === "non_ac"
+    ? (room.nonAcRoomPrice > 0 ? room.nonAcRoomPrice : fallbackPrice)
+    : (room.acRoomPrice > 0 ? room.acRoomPrice : fallbackPrice);
+  return { pricingMode, basePrice };
+};
+
 const assertRoomAvailable = async ({ roomId, checkIn, checkOut }) => {
   const activeBooking = await Booking.findOne(
     activeOverlapFilter({ roomId, checkIn, checkOut })
   );
   return !activeBooking;
 };
+
+const findActiveTourRoom = ({ houseboatId, roomId, checkIn, checkOut }) =>
+  Tour.findOne({
+    houseboatId,
+    status: "scheduled",
+    checkIn,
+    checkOut,
+    roomIds: roomId,
+  }).select("_id title");
 
 const getManagedHouseboat = async (user) => {
   if (user.role === "boat_owner") return Houseboat.findOne({ ownerId: user._id });
@@ -43,6 +72,7 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
     customerPhone,
     customerAddress,
     note,
+    pricingMode,
   } = req.body;
   objectId(boatId, "হাউসবোট আইডি");
   objectId(roomId, "রুম আইডি");
@@ -58,9 +88,8 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
   ]);
 
   if (!boat || !boat.isOperational) return next(new AppError("সক্রিয় হাউসবোট পাওয়া যায়নি।", 404));
-  const joined = String(agent.joinedHouseboatId || "") === String(boat._id);
   const approved = boat.approvedAgents.some((agentId) => String(agentId) === String(agent._id));
-  if (!joined || !approved) {
+  if (!approved) {
     return next(new AppError("এই বোটে বুকিং রিকোয়েস্ট পাঠানোর অনুমতি নেই। আগে বোট ওনারের অনুমোদন নিন।", 403));
   }
   if (!room || String(room.houseboatId) !== String(boat._id)) {
@@ -69,6 +98,14 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
   if (!room.isActive || room.status === "maintenance") {
     return next(new AppError("এই রুমটি এখন রিকোয়েস্টের জন্য সক্রিয় নয়।", 400));
   }
+
+  const activeTour = await findActiveTourRoom({
+    houseboatId: boat._id,
+    roomId: room._id,
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+  });
+  if (!activeTour) return next(new AppError("এই তারিখে এই রুমের কোনো সক্রিয় ট্যুর নেই।", 400));
 
   const available = await assertRoomAvailable({
     roomId: room._id,
@@ -79,7 +116,8 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
 
   const numGuests = optionalNumber(guestCount, "অতিথি সংখ্যা", { min: 1, max: 100, integer: true }) ?? 1;
   const extraCharge = Math.max(0, numGuests - room.maxCapacity) * room.extraPersonPrice;
-  const totalPrice = (room.acRoomPrice || room.basePrice) + extraCharge;
+  const resolvedPrice = resolveRoomPrice(room, pricingMode);
+  const totalPrice = resolvedPrice.basePrice + extraCharge;
   const agentCommission = Math.round(totalPrice * COMMISSION_RATE);
   const bookingCustomerName = requiredString(customerName, "গ্রাহকের নাম", 120);
   const bookingCustomerPhone = requiredString(customerPhone, "গ্রাহকের ফোন", 40);
@@ -91,6 +129,8 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
     ownerId: boat.ownerId._id,
     tripDates: { checkIn: slot.checkIn, checkOut: slot.checkOut },
     guestCount: numGuests,
+    pricingMode: resolvedPrice.pricingMode,
+    basePrice: resolvedPrice.basePrice,
     totalPrice,
     agentCommission,
     customerName: bookingCustomerName,
@@ -116,7 +156,7 @@ const createBookingRequest = catchAsync(async (req, res, next) => {
 const getMyBookingRequests = catchAsync(async (req, res) => {
   const requests = await BookingRequest.find({ agentId: req.user._id })
     .populate("boatId", "name location logoUrl")
-    .populate("roomId", "roomNumber roomType")
+    .populate("roomId", "roomNumber roomType climate images")
     .sort("-createdAt");
 
   res.status(200).json({ success: true, data: { requests } });
@@ -136,7 +176,7 @@ const getIncomingBookingRequests = catchAsync(async (req, res) => {
   })
     .populate("agentId", "name email phone")
     .populate("boatId", "name location")
-    .populate("roomId", "roomNumber roomType")
+    .populate("roomId", "roomNumber roomType climate images")
     .sort("-createdAt");
 
   res.status(200).json({ success: true, data: { count: requests.length, requests } });
@@ -176,6 +216,14 @@ const approveBookingRequest = catchAsync(async (req, res, next) => {
   }
 
   await expireStaleHolds();
+  const activeTour = await findActiveTourRoom({
+    houseboatId: request.boatId._id,
+    roomId: request.roomId._id,
+    checkIn: request.tripDates.checkIn,
+    checkOut: request.tripDates.checkOut,
+  });
+  if (!activeTour) return next(new AppError("এই রিকোয়েস্টের ট্যুর আর সক্রিয় নেই।", 400));
+
   const available = await assertRoomAvailable({
     roomId: request.roomId._id,
     checkIn: request.tripDates.checkIn,
@@ -216,7 +264,8 @@ const approveBookingRequest = catchAsync(async (req, res, next) => {
     referenceName: req.body.referenceName
       ? requiredString(req.body.referenceName, "রেফারেন্স নাম", 120)
       : request.agentId.name,
-    basePrice: request.roomId.acRoomPrice || request.roomId.basePrice,
+    pricingMode: request.pricingMode,
+    basePrice: request.basePrice || resolveRoomPrice(request.roomId, request.pricingMode).basePrice,
     extraCharge: Math.max(0, request.guestCount - request.roomId.maxCapacity) * request.roomId.extraPersonPrice,
     totalPrice: request.totalPrice,
     agentCommission: request.agentCommission,

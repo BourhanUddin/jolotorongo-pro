@@ -71,12 +71,14 @@ export interface Houseboat {
 // ─── Room ─────────────────────────────────────────────────────
 export type RoomStatus = 'available' | 'on_hold' | 'booked' | 'maintenance';
 export type RoomType = 'single' | 'double' | 'family' | 'vip' | 'dormitory';
+export type RoomClimate = 'ac' | 'non_ac';
 
 export interface Room {
   _id: string;
   houseboatId: string;
   roomNumber: string;
   roomType: RoomType;
+  climate?: RoomClimate;
   acRoomPrice: number;
   nonAcRoomPrice: number;
   basePrice: number;

@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   getUnverifiedAgents, verifyAgent, suspendAgent,
   listHouseboats, sendJoinRequest, getMyJoinRequests,
-  getIncomingJoinRequests, approveJoinRequest, rejectJoinRequest,
+  getApprovedAvailableRooms, getIncomingJoinRequests, approveJoinRequest, rejectJoinRequest,
 } = require("../controllers/agent.controller");
 const { protect, restrictTo, requireActiveSubscription } = require("../middleware/auth.middleware");
 
@@ -13,6 +13,7 @@ router.get("/houseboats", protect, listHouseboats);
 // ─── Agent actions (must be logged in) ──────────────────────
 router.post("/join-request", protect, restrictTo("agent"), sendJoinRequest);
 router.get("/join-requests/my", protect, restrictTo("agent"), getMyJoinRequests);
+router.get("/available-rooms", protect, restrictTo("agent"), getApprovedAvailableRooms);
 
 // ─── Boat owner: manage incoming join requests ───────────────
 router.get(

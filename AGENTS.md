@@ -41,9 +41,10 @@ Admin/Manager may only query their own `houseboatId`.
 Agent may only access:
 - globally visible active boats where allowed
 - their own join requests
-- their approved tenant networks
+- their approved tenant networks through `Houseboat.approvedAgents[]`
 - bookings/holds they created
 - availability for approved tenant networks
+- their own booking requests, approved bookings, and commission
 
 Never trust `houseboatId` coming from the client for protected tenant operations. Derive it from the authenticated user/session unless the actor is Super Admin.
 
@@ -88,6 +89,20 @@ When a room is placed on hold:
 
 Do not rely only on frontend countdown timers. Backend is the source of truth.
 
+### 3.1 Tour-Gated Room Matrix
+
+Bookings page must show rooms only when an active scheduled Tour exists for the exact selected 2D/1N slot.
+
+```ts
+tour.checkIn === requested.checkIn;
+tour.checkOut === requested.checkOut;
+tour.status === "scheduled";
+```
+
+If no active Tour exists for the selected Booking date, return no rooms. Do not fall back to all vessel rooms.
+
+Tour Date equals Booking Date.
+
 ### 4. RBAC
 
 Supported roles:
@@ -102,6 +117,10 @@ Every protected API route must use:
 2. role middleware
 3. tenant scope middleware
 4. subscription/verification middleware when required
+
+Agent approval is multi-boat. Use `Houseboat.approvedAgents[]` as the source of truth. `User.joinedHouseboatId` is only a backward-compatible default and must not block access to other approved boats.
+
+Agents must not see any boat booking history. Agents can see only availability for approved boats and their own booking requests/commissions.
 
 ### 5. Security
 

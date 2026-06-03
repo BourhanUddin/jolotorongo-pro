@@ -13,6 +13,11 @@ const roomSchema = new mongoose.Schema(
       enum: ["single", "double", "family", "vip", "dormitory"],
       default: "double",
     },
+    climate: {
+      type: String,
+      enum: ["ac", "non_ac"],
+      default: undefined,
+    },
     acRoomPrice: { type: Number, required: true },
     nonAcRoomPrice: { type: Number, required: true },
     basePrice: { type: Number, required: true },

@@ -83,6 +83,7 @@ Do not build advanced features before the MVP foundation is stable.
 - Implement hold expiry cron.
 - Implement room availability API.
 - Implement tour matrix API.
+- Make tour matrix return rooms only when an active Tour exists for exact selected 2D/1N date.
 - Implement admin manifest API.
 
 ### Completion Criteria
@@ -106,6 +107,8 @@ Do not build advanced features before the MVP foundation is stable.
 - Agent join request.
 - Owner approve/reject agent.
 - Agent can view availability and send booking requests only after approval.
+- Agent can be approved for multiple boats.
+- Agent can filter by one date and view available rooms across all approved boats.
 - Agent can mark pending request as payment confirmed.
 - Agent can track calculated commission.
 
@@ -113,7 +116,8 @@ Do not build advanced features before the MVP foundation is stable.
 
 - Unverified agent cannot request booking.
 - Verified but tenant-unapproved agent cannot access availability.
-- Approved agent sees only approved tenant operations.
+- Approved agent sees only approved tenant availability and own request/commission data.
+- Approved agent cannot see boat booking history.
 - Approved agent cannot create tours.
 - Approved agent cannot directly book/hold rooms.
 

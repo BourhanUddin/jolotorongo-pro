@@ -108,18 +108,19 @@ const createRoom = catchAsync(async (req, res, next) => {
   ];
 
   const roomType = enumValue(req.body.roomType || "double", ["single", "double", "family", "vip", "dormitory"], "রুম ধরন");
-  const acRoomPrice = req.body.acRoomPrice !== undefined
-    ? numberValue(req.body.acRoomPrice, "AC রুম মূল্য", { min: 0 })
-    : numberValue(req.body.basePrice, "AC রুম মূল্য", { min: 0 });
-  const nonAcRoomPrice = req.body.nonAcRoomPrice !== undefined
-    ? numberValue(req.body.nonAcRoomPrice, "Non-AC রুম মূল্য", { min: 0 })
-    : acRoomPrice;
+  const climate = enumValue(req.body.climate || req.body.pricingMode || "ac", ["ac", "non_ac"], "রুম AC ধরন");
+  const selectedPrice = climate === "non_ac"
+    ? numberValue(req.body.nonAcRoomPrice ?? req.body.basePrice ?? req.body.acRoomPrice, "Non-AC রুম মূল্য", { min: 0 })
+    : numberValue(req.body.acRoomPrice ?? req.body.basePrice ?? req.body.nonAcRoomPrice, "AC রুম মূল্য", { min: 0 });
+  const acRoomPrice = climate === "ac" ? selectedPrice : 0;
+  const nonAcRoomPrice = climate === "non_ac" ? selectedPrice : 0;
   const payload = {
     roomNumber: requiredString(req.body.roomNumber, "রুম নম্বর", 40),
     roomType,
+    climate,
     acRoomPrice,
     nonAcRoomPrice,
-    basePrice: acRoomPrice,
+    basePrice: selectedPrice,
     extraPersonPrice: optionalNumber(req.body.extraPersonPrice, "অতিরিক্ত মূল্য", { min: 0 }) ?? 0,
     maxCapacity: optionalNumber(req.body.maxCapacity, "ধারণক্ষমতা", { min: 1, max: 100, integer: true }) ?? 2,
     description: optionalString(req.body.description, 1000),
@@ -146,14 +147,20 @@ const updateRoom = catchAsync(async (req, res, next) => {
   const payload = {};
   if (req.body.roomNumber !== undefined) payload.roomNumber = requiredString(req.body.roomNumber, "রুম নম্বর", 40);
   if (req.body.roomType !== undefined) payload.roomType = enumValue(req.body.roomType, ["single", "double", "family", "vip", "dormitory"], "রুম ধরন");
-  if (req.body.acRoomPrice !== undefined) {
-    payload.acRoomPrice = numberValue(req.body.acRoomPrice, "AC রুম মূল্য", { min: 0 });
-    payload.basePrice = payload.acRoomPrice;
-  } else if (req.body.basePrice !== undefined) {
-    payload.acRoomPrice = numberValue(req.body.basePrice, "AC রুম মূল্য", { min: 0 });
-    payload.basePrice = payload.acRoomPrice;
+  const priceTouched = req.body.climate !== undefined || req.body.pricingMode !== undefined || req.body.acRoomPrice !== undefined || req.body.nonAcRoomPrice !== undefined || req.body.basePrice !== undefined;
+  if (priceTouched) {
+    const climate = enumValue(req.body.climate || req.body.pricingMode || access.room.climate || "ac", ["ac", "non_ac"], "রুম AC ধরন");
+    const currentPrice = climate === "non_ac"
+      ? access.room.nonAcRoomPrice || access.room.basePrice || access.room.acRoomPrice
+      : access.room.acRoomPrice || access.room.basePrice || access.room.nonAcRoomPrice;
+    const selectedPrice = climate === "non_ac"
+      ? numberValue(req.body.nonAcRoomPrice ?? req.body.basePrice ?? req.body.acRoomPrice ?? currentPrice, "Non-AC রুম মূল্য", { min: 0 })
+      : numberValue(req.body.acRoomPrice ?? req.body.basePrice ?? req.body.nonAcRoomPrice ?? currentPrice, "AC রুম মূল্য", { min: 0 });
+    payload.climate = climate;
+    payload.acRoomPrice = climate === "ac" ? selectedPrice : 0;
+    payload.nonAcRoomPrice = climate === "non_ac" ? selectedPrice : 0;
+    payload.basePrice = selectedPrice;
   }
-  if (req.body.nonAcRoomPrice !== undefined) payload.nonAcRoomPrice = numberValue(req.body.nonAcRoomPrice, "Non-AC রুম মূল্য", { min: 0 });
   if (req.body.extraPersonPrice !== undefined) payload.extraPersonPrice = numberValue(req.body.extraPersonPrice, "অতিরিক্ত মূল্য", { min: 0 });
   if (req.body.maxCapacity !== undefined) payload.maxCapacity = numberValue(req.body.maxCapacity, "ধারণক্ষমতা", { min: 1, max: 100, integer: true });
   if (req.body.description !== undefined) payload.description = optionalString(req.body.description, 1000);

@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { type Dispatch, type SetStateAction, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -36,24 +36,33 @@ const amenityOptions = [
   { key: "Smart TV", icon: Tv },
 ];
 
+const fallbackRoomImage = "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80";
+
 export default function AddRoomPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [roomNumber, setRoomNumber] = useState("");
   const [roomType, setRoomType] = useState("double");
-  const [acRoomPrice, setAcRoomPrice] = useState("12500");
-  const [nonAcRoomPrice, setNonAcRoomPrice] = useState("9500");
+  const [climate, setClimate] = useState<"ac" | "non_ac">("ac");
+  const [roomPrice, setRoomPrice] = useState("12500");
   const [extraPersonPrice, setExtraPersonPrice] = useState("1500");
   const [maxCapacity, setMaxCapacity] = useState(2);
   const [amenities, setAmenities] = useState<string[]>(["Full A/C", "Attached Bath"]);
   const [services, setServices] = useState<string[]>(["Breakfast", "Life Jacket"]);
   const [amenityDraft, setAmenityDraft] = useState("");
   const [serviceDraft, setServiceDraft] = useState("");
-  const [imageUrls, setImageUrls] = useState(
-    "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80"
-  );
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [vesselId, setVesselId] = useState("");
+  const previewUrl = useMemo(() => {
+    if (!imageFiles[0] || typeof window === "undefined") return fallbackRoomImage;
+    return URL.createObjectURL(imageFiles[0]);
+  }, [imageFiles]);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const { data: fleetData } = useQuery({
     queryKey: ["houseboat-fleet"],
@@ -68,14 +77,14 @@ export default function AddRoomPage() {
         houseboatId: selectedVesselId,
         roomNumber,
         roomType,
-        acRoomPrice: Number(acRoomPrice),
-        nonAcRoomPrice: Number(nonAcRoomPrice),
-        basePrice: Number(acRoomPrice),
+        climate,
+        acRoomPrice: climate === "ac" ? Number(roomPrice) : 0,
+        nonAcRoomPrice: climate === "non_ac" ? Number(roomPrice) : 0,
+        basePrice: Number(roomPrice),
         extraPersonPrice: Number(extraPersonPrice),
         maxCapacity,
         amenities,
         services,
-        imageUrls: imageUrls.split("\n").map((url) => url.trim()).filter(Boolean),
         description: `${categories.find((item) => item.value === roomType)?.label || "Room"} cabin for 2D / 1N tours.`,
       };
       if (imageFiles.length === 0) return roomApi.create(payload);
@@ -95,10 +104,18 @@ export default function AddRoomPage() {
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Could not add room"),
   });
 
-  const canSave = roomNumber.trim() && selectedVesselId && Number(acRoomPrice) > 0 && Number(nonAcRoomPrice) > 0;
+  const canSave = roomNumber.trim() && selectedVesselId && Number(roomPrice) > 0;
 
   const toggleAmenity = (key: string) => {
+    if (climate === "non_ac" && key === "Full A/C") return;
     setAmenities((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  };
+  const selectClimate = (nextClimate: "ac" | "non_ac") => {
+    setClimate(nextClimate);
+    setAmenities((current) => {
+      const withoutAc = current.filter((item) => item !== "Full A/C");
+      return nextClimate === "ac" ? ["Full A/C", ...withoutAc] : withoutAc;
+    });
   };
   const addToken = (value: string, setter: Dispatch<SetStateAction<string[]>>, clear: () => void) => {
     const clean = value.trim();
@@ -117,10 +134,11 @@ export default function AddRoomPage() {
 
       <section className="relative overflow-hidden rounded-lg">
         <Image
-          src={imageUrls.split("\n")[0] || "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80"}
+          src={previewUrl}
           alt="Room preview"
           width={480}
           height={260}
+          unoptimized={previewUrl.startsWith("blob:")}
           className="h-48 w-full object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
@@ -157,19 +175,28 @@ export default function AddRoomPage() {
           <h2 className="flex items-center gap-2 text-xl font-medium"><WalletCards size={21} /> Base Pricing</h2>
           <span className="text-xs font-bold">2D / 1N TRIP</span>
         </div>
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => selectClimate("ac")}
+            className={`rounded-lg border px-3 py-3 text-sm font-bold ${climate === "ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc] bg-white text-slate-700"}`}
+          >
+            AC Room
+          </button>
+          <button
+            onClick={() => selectClimate("non_ac")}
+            className={`rounded-lg border px-3 py-3 text-sm font-bold ${climate === "non_ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc] bg-white text-slate-700"}`}
+          >
+            Non-AC Room
+          </button>
+        </div>
         <label className="block rounded-lg border-2 border-slate-600 bg-white px-4 py-3">
-          <span className="text-xs text-slate-500">AC Room Price (BDT)</span>
+          <span className="text-xs text-slate-500">{climate === "ac" ? "AC" : "Non-AC"} Room Price (BDT)</span>
           <span className="mt-1 flex items-center justify-between">
-            <input value={acRoomPrice} onChange={(event) => setAcRoomPrice(event.target.value)} type="number" min="0" required className="w-full bg-transparent text-3xl font-bold outline-none" />
-            <span className="text-sm text-slate-600">per night</span>
+            <input value={roomPrice} onChange={(event) => setRoomPrice(event.target.value)} type="number" min="0" required className="w-full bg-transparent text-3xl font-bold outline-none" />
+            <span className="text-sm text-slate-600">2D / 1N</span>
           </span>
         </label>
-        <div className="mt-5 grid grid-cols-2 gap-4">
-          <label className="rounded-lg bg-white/70 p-4">
-            <span className="text-xs uppercase tracking-widest">Non-AC Room Price</span>
-            <input value={nonAcRoomPrice} onChange={(event) => setNonAcRoomPrice(event.target.value)} type="number" min="0" required className="mt-2 w-full bg-transparent text-2xl font-medium outline-none" />
-            <span className="text-[10px] uppercase text-slate-500">per night</span>
-          </label>
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-lg bg-white/70 p-4">
             <p className="text-xs uppercase tracking-widest">Capacity</p>
             <div className="mt-3 flex items-center gap-4">
@@ -191,8 +218,9 @@ export default function AddRoomPage() {
         <div className="grid grid-cols-2 gap-3">
           {amenityOptions.map(({ key, icon: Icon }) => {
             const selected = amenities.includes(key);
+            const disabled = climate === "non_ac" && key === "Full A/C";
             return (
-              <button key={key} onClick={() => toggleAmenity(key)} className="flex items-center gap-3 rounded-lg bg-white/50 p-4 text-left">
+              <button key={key} onClick={() => toggleAmenity(key)} disabled={disabled} className="flex items-center gap-3 rounded-lg bg-white/50 p-4 text-left disabled:opacity-45">
                 <span className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? "border-blue-600 bg-blue-600 text-white" : "border-slate-500"}`}>
                   {selected && <Check size={14} />}
                 </span>
@@ -239,11 +267,11 @@ export default function AddRoomPage() {
         </div>
       </section>
 
-      <label className="mt-6 block">
-        <span className="mb-2 block text-xs font-semibold uppercase tracking-widest">Image URLs</span>
-        <textarea value={imageUrls} onChange={(event) => setImageUrls(event.target.value)} rows={3} className="input" />
-        {imageFiles.length > 0 && <span className="mt-2 block text-xs font-semibold text-slate-600">{imageFiles.length} image file(s) selected</span>}
-      </label>
+      {imageFiles.length > 0 && (
+        <p className="mt-6 rounded-lg bg-white p-3 text-xs font-semibold text-slate-600 shadow-sm">
+          {imageFiles.length} image file(s) selected.
+        </p>
+      )}
 
       <div className="mt-8 grid gap-4">
         <button

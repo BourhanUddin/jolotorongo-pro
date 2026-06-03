@@ -15,6 +15,7 @@ Jolotorongo provides:
 - 2D/1N room availability and booking management
 - Admin/Manager Tour configuration with vessel-specific room assignment
 - Agent booking request and approval flow
+- Multi-boat agent approval and date-filtered availability
 - Legacy room hold expiry support
 - Invoice, ledger, expense, and profit tracking
 - WhatsApp invoice/message support
@@ -98,7 +99,7 @@ Legacy single-date booking logic such as `tourDate` should not be used as the so
 | Super Admin | Platform management, tenant approval, subscription verification, agent verification |
 | Boat Owner/Admin | Houseboat setup, rooms, pricing, bookings, agents, reports |
 | Manager | Bookings, expenses, invoices, daily operations |
-| Agent | Approved vessel availability, booking requests, payment confirmation, commission tracking |
+| Agent | Approved vessel availability across one or more boats, own booking requests, payment confirmation, commission tracking |
 | Customer | Receives invoice/payment instructions through WhatsApp |
 
 ---
@@ -215,7 +216,7 @@ The booking UI should show slot-specific room states:
 | `on_hold` | Legacy/internal temporary hold with expiry time |
 | `booked` | Room is confirmed/reserved for the selected slot |
 
-Agents do not directly hold or book rooms. Agents submit booking requests; rooms become booked only after Admin/Manager approval.
+Agents do not directly hold or book rooms. Agents submit booking requests; rooms become booked only after Admin/Manager approval. Agents cannot view boat booking history; they can only access approved availability plus their own requests, approved bookings, and commissions.
 
 ---
 
@@ -225,7 +226,8 @@ Agents do not directly hold or book rooms. Agents submit booking requests; rooms
 |---|---|
 | Create Tour | Admin/Manager schedule a 2D/1N tour, choose vessel, edit tour identity, assign rooms. No booking actions here. |
 | Bookings | Admin/Manager view date-based room matrix and directly book available rooms with mandatory Reference Name. |
-| Agent Booking | Agent views approved vessel availability and submits booking requests with customer details, note, and commission preview. |
+| Bookings | Rooms appear only when an active Tour exists where Tour Date equals selected Booking Date. No active Tour means no room matrix. |
+| Agent Booking | Agent views date-filtered availability across all approved boats and submits booking requests with customer details, note, and commission preview. |
 | Revenue | Confirmed direct bookings and approved agent requests auto-create Invoice and Ledger records. |
 
 A room can be booked for one 2D/1N rotation and still be available for another rotation.

@@ -1,25 +1,31 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { ArrowLeft, BedDouble, CalendarDays, Check, FileText, Lock, Plus, Send, ShipWheel, X } from "lucide-react";
-import { bookingApi, bookingRequestApi, houseboatApi, tourApi } from "@/lib/api";
+import { agentApi, bookingApi, bookingRequestApi, houseboatApi, tourApi } from "@/lib/api";
 import { formatMoney } from "@/lib/labels";
 import { useAuthStore } from "@/store/auth.store";
-import type { BookingRequest, Houseboat, Room, User } from "@/types";
+import type { BookingRequest, Houseboat, Room, Tour, User } from "@/types";
 
 const todayInput = () => {
   const d = new Date();
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  return formatInputDate(d);
 };
 
 const addOneDay = (date: string) => {
   if (!date) return "";
-  const d = new Date(`${date}T00:00:00`);
+  const [year, month, day] = date.split("-").map(Number);
+  const d = new Date(year, month - 1, day);
   d.setDate(d.getDate() + 1);
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  return formatInputDate(d);
+};
+
+const formatInputDate = (date: Date) => {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 };
 
 type BookingForm = {
@@ -33,6 +39,17 @@ type BookingForm = {
   pricingMode: "ac" | "non_ac";
 };
 
+type AvailableGroup = {
+  boat: Houseboat;
+  tour: Tour;
+  rooms: Room[];
+};
+
+type BookableRoom = Room & {
+  boat?: Houseboat;
+  tourTitle?: string;
+};
+
 const blankForm: BookingForm = {
   customerName: "",
   customerPhone: "",
@@ -44,6 +61,27 @@ const blankForm: BookingForm = {
   pricingMode: "ac",
 };
 
+const roomImage = (room: Room) => room.images?.[0] || "https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80";
+
+const roomClimate = (room: Room): "ac" | "non_ac" | "both" => {
+  if (room.climate) return room.climate;
+  if ((room.acRoomPrice || 0) > 0 && (room.nonAcRoomPrice || 0) > 0) return "both";
+  return (room.nonAcRoomPrice || 0) > 0 ? "non_ac" : "ac";
+};
+
+const defaultPricingMode = (room: Room): "ac" | "non_ac" => roomClimate(room) === "non_ac" ? "non_ac" : "ac";
+
+const roomPrice = (room: Room, mode: "ac" | "non_ac") => {
+  const primary = mode === "ac" ? room.acRoomPrice : room.nonAcRoomPrice;
+  return primary > 0 ? primary : room.basePrice;
+};
+
+const climateLabel = (room: Room) => {
+  const climate = roomClimate(room);
+  if (climate === "both") return "AC / Non-AC";
+  return climate === "ac" ? "AC" : "Non-AC";
+};
+
 export default function BookingsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
@@ -51,11 +89,9 @@ export default function BookingsPage() {
   const isAgent = user?.role === "agent";
   const [date, setDate] = useState(todayInput());
   const [selectedVesselId, setSelectedVesselId] = useState("");
-  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<BookableRoom | null>(null);
   const [form, setForm] = useState<BookingForm>(blankForm);
   const checkOut = addOneDay(date);
-
-  const agentBoatId = typeof user?.joinedHouseboatId === "object" ? user.joinedHouseboatId?._id : user?.joinedHouseboatId || "";
 
   const { data: fleetData } = useQuery({
     queryKey: ["houseboat-fleet"],
@@ -64,12 +100,17 @@ export default function BookingsPage() {
   });
   const vessels: (Houseboat & { selected?: boolean })[] = useMemo(() => fleetData?.data?.data?.houseboats || [], [fleetData]);
   const defaultVesselId = fleetData?.data?.data?.selectedHouseboatId || vessels.find((boat) => boat.selected)?._id || vessels[0]?._id || "";
-  const activeVesselId = isAgent ? agentBoatId : selectedVesselId || defaultVesselId;
+  const activeVesselId = selectedVesselId || defaultVesselId;
 
   const { data: matrixData, isLoading } = useQuery({
     queryKey: ["booking-matrix", activeVesselId, date, checkOut],
     queryFn: () => tourApi.matrix({ houseboatId: activeVesselId, checkIn: date, checkOut }),
-    enabled: !!activeVesselId && !!date,
+    enabled: isAdmin && !!activeVesselId && !!date,
+  });
+  const { data: agentAvailabilityData, isLoading: loadingAgentRooms } = useQuery({
+    queryKey: ["agent-approved-available-rooms", date, checkOut],
+    queryFn: () => agentApi.availableRooms({ checkIn: date, checkOut }),
+    enabled: isAgent && !!date && !!checkOut && !!user?.isApprovedByAdmin && user?.status === "active",
   });
   const { data: incomingData } = useQuery({
     queryKey: ["incoming-booking-requests"],
@@ -82,14 +123,16 @@ export default function BookingsPage() {
     enabled: isAgent,
   });
 
-  const rooms: Room[] = matrixData?.data?.data?.rooms || [];
+  const agentGroups: AvailableGroup[] = agentAvailabilityData?.data?.data?.groups || [];
+  const rooms: BookableRoom[] = isAgent
+    ? agentGroups.flatMap((group) => group.rooms.map((room) => ({ ...room, boat: group.boat, tourTitle: group.tour.title })))
+    : matrixData?.data?.data?.rooms || [];
   const tour = matrixData?.data?.data?.tour;
+  const loadingRooms = isAgent ? loadingAgentRooms : isLoading;
   const incomingRequests: BookingRequest[] = incomingData?.data?.data?.requests || [];
   const myRequests: BookingRequest[] = myRequestsData?.data?.data?.requests || [];
   const selectedPrice = selectedRoom
-    ? form.pricingMode === "ac"
-      ? selectedRoom.acRoomPrice || selectedRoom.basePrice
-      : selectedRoom.nonAcRoomPrice || selectedRoom.basePrice
+    ? roomPrice(selectedRoom, roomClimate(selectedRoom) === "non_ac" ? "non_ac" : form.pricingMode)
     : 0;
   const extraCharge = selectedRoom ? Math.max(0, Number(form.guestCount) - selectedRoom.maxCapacity) * selectedRoom.extraPersonPrice : 0;
   const total = selectedPrice + extraCharge;
@@ -127,7 +170,7 @@ export default function BookingsPage() {
 
   const createRequest = useMutation({
     mutationFn: () => bookingRequestApi.create({
-      boatId: activeVesselId,
+      boatId: selectedRoom?.boat?._id || activeVesselId,
       roomId: selectedRoom?._id,
       checkIn: date,
       checkOut,
@@ -135,6 +178,7 @@ export default function BookingsPage() {
       customerName: form.customerName,
       customerPhone: form.customerPhone,
       customerAddress: form.customerAddress,
+      pricingMode: form.pricingMode,
       note: form.note,
     }),
     onSuccess: () => {
@@ -208,16 +252,20 @@ export default function BookingsPage() {
               )}
             </div>
             <p className="mt-4 text-sm text-slate-600">
-              {tour ? `Tour: ${tour.title}` : "No configured tour for this date. Showing vessel rooms."}
+              {isAgent
+                ? "Showing available rooms across all approved boats for this 2D / 1N date."
+                : tour ? `Tour: ${tour.title}` : "No active tour for this date. Rooms are shown only for an active tour date."}
             </p>
           </section>
 
           <section>
-            <h2 className="mb-4 text-lg font-semibold">Date-Based Room Matrix</h2>
-            {isLoading ? (
+            <h2 className="mb-4 text-lg font-semibold">{isAgent ? "Approved Boat Available Rooms" : "Date-Based Room Matrix"}</h2>
+            {loadingRooms ? (
               <p className="rounded-xl bg-white p-5 text-sm text-slate-600">Loading availability...</p>
             ) : rooms.length === 0 ? (
-              <p className="rounded-xl bg-white p-5 text-sm text-slate-600">No rooms found for this date.</p>
+              <p className="rounded-xl bg-white p-5 text-sm text-slate-600">
+                {isAgent ? "No available room found across approved boats for this date." : "No active tour for this date. Select a date where Tour Date equals Booking Date."}
+              </p>
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {rooms.map((room) => {
@@ -226,19 +274,32 @@ export default function BookingsPage() {
                     <button
                       key={room._id}
                       disabled={locked}
-                      onClick={() => { setSelectedRoom(room); setForm(blankForm); }}
-                      className={`rounded-xl border p-4 text-left shadow-sm ${locked ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
+                      onClick={() => { setSelectedRoom(room); setForm({ ...blankForm, pricingMode: defaultPricingMode(room) }); }}
+                      className={`overflow-hidden rounded-xl border bg-white text-left shadow-sm transition ${locked ? "border-red-200 opacity-75" : "border-emerald-200 hover:-translate-y-0.5 hover:border-[#563795] hover:shadow-md"}`}
                     >
-                      <span className="flex items-start justify-between gap-3">
-                        <span>
-                          <b>Room {room.roomNumber}</b>
-                          <span className="mt-1 block text-sm">{room.roomType} · {room.maxCapacity} guests</span>
-                          <span className="mt-1 block text-xs">AC {formatMoney(room.acRoomPrice || room.basePrice)} · Non-AC {formatMoney(room.nonAcRoomPrice || room.basePrice)}</span>
+                      <span className="relative block h-32 w-full">
+                        <Image src={roomImage(room)} alt={`Room ${room.roomNumber}`} fill sizes="(min-width: 1280px) 30vw, (min-width: 640px) 45vw, 90vw" className="object-cover" />
+                        <span className={`absolute left-3 top-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm ${locked ? "bg-red-600 text-white" : "bg-emerald-600 text-white"}`}>
+                          {locked ? (room.availabilityState === "on_hold" ? "On Hold" : room.availabilityState === "maintenance" ? "Maintenance" : "Booked") : "Available"}
                         </span>
-                        {locked ? <Lock size={18} /> : <Check size={18} />}
                       </span>
-                      <span className="mt-3 inline-flex rounded-full bg-white/80 px-2 py-1 text-[11px] font-bold">
-                        {locked ? (room.availabilityState === "on_hold" ? "On Hold" : room.availabilityState === "maintenance" ? "Maintenance" : "Booked") : "Available"}
+                      <span className="block p-4 text-[#151020]">
+                        <span className="flex items-start justify-between gap-3">
+                          <span>
+                            <b className="block text-base">Room {room.roomNumber}</b>
+                            {room.boat && <span className="mt-1 block text-xs font-semibold text-[#32157c]">{room.boat.name}</span>}
+                            <span className="mt-1 block text-sm capitalize text-slate-600">{room.roomType} · {climateLabel(room)} · {room.maxCapacity} guests</span>
+                            {room.tourTitle && <span className="mt-1 block text-xs text-slate-500">{room.tourTitle}</span>}
+                          </span>
+                          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${locked ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                            {locked ? <Lock size={17} /> : <Check size={17} />}
+                          </span>
+                        </span>
+                        <span className="mt-3 grid gap-1 text-xs text-slate-600">
+                          {(roomClimate(room) === "ac" || roomClimate(room) === "both") && <span>AC: <b>{formatMoney(roomPrice(room, "ac"))}</b></span>}
+                          {(roomClimate(room) === "non_ac" || roomClimate(room) === "both") && <span>Non-AC: <b>{formatMoney(roomPrice(room, "non_ac"))}</b></span>}
+                          {room.amenities?.length > 0 && <span className="line-clamp-1">Amenities: {room.amenities.slice(0, 3).join(", ")}</span>}
+                        </span>
                       </span>
                     </button>
                   );
@@ -288,17 +349,28 @@ export default function BookingsPage() {
             <p className="mt-4 text-sm text-slate-600">Select an available room from the matrix.</p>
           ) : (
             <div className="mt-4 grid gap-3">
-              <p className="rounded-lg bg-[#f8f4fb] p-3 text-sm font-bold">Room {selectedRoom.roomNumber} · {date} to {checkOut}</p>
+              <div className="overflow-hidden rounded-lg bg-[#f8f4fb]">
+                <div className="relative h-28">
+                  <Image src={roomImage(selectedRoom)} alt={`Room ${selectedRoom.roomNumber}`} fill sizes="360px" className="object-cover" />
+                </div>
+                <p className="p-3 text-sm font-bold">
+                  {selectedRoom.boat ? `${selectedRoom.boat.name} · ` : ""}Room {selectedRoom.roomNumber} · {date} to {checkOut}
+                </p>
+              </div>
               <input value={form.customerName} onChange={(event) => setForm({ ...form, customerName: event.target.value })} placeholder="Customer name" className="input" />
               <input value={form.customerPhone} onChange={(event) => setForm({ ...form, customerPhone: event.target.value })} placeholder="Customer contact" className="input" />
               <input value={form.customerAddress} onChange={(event) => setForm({ ...form, customerAddress: event.target.value })} placeholder="Customer address" className="input" />
               <input value={form.guestCount} onChange={(event) => setForm({ ...form, guestCount: event.target.value })} type="number" min="1" className="input" />
               {isAdmin && <input value={form.referenceName} onChange={(event) => setForm({ ...form, referenceName: event.target.value })} placeholder="Reference Name" className="input" />}
               {isAdmin && <input value={form.advancePaid} onChange={(event) => setForm({ ...form, advancePaid: event.target.value })} type="number" min="0" placeholder="Advance paid" className="input" />}
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={() => setForm({ ...form, pricingMode: "ac" })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${form.pricingMode === "ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc]"}`}>AC</button>
-                <button onClick={() => setForm({ ...form, pricingMode: "non_ac" })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${form.pricingMode === "non_ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc]"}`}>Non-AC</button>
-              </div>
+              {roomClimate(selectedRoom) === "both" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setForm({ ...form, pricingMode: "ac" })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${form.pricingMode === "ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc]"}`}>AC</button>
+                  <button onClick={() => setForm({ ...form, pricingMode: "non_ac" })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${form.pricingMode === "non_ac" ? "border-[#563795] bg-[#563795] text-white" : "border-[#d8cfdc]"}`}>Non-AC</button>
+                </div>
+              ) : (
+                <p className="rounded-lg border border-[#d8cfdc] px-3 py-2 text-sm font-bold">{climateLabel(selectedRoom)} room</p>
+              )}
               <textarea value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} rows={3} placeholder={isAgent ? "Note / special request" : "Booking note"} className="input" />
               <div className="rounded-lg bg-slate-50 p-3 text-sm">
                 <div className="flex justify-between"><span>Total</span><b>{formatMoney(total)}</b></div>

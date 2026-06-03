@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const backendApiUrl = process.env.BACKEND_API_URL || "http://localhost:5000/api";
+const backendAssetUrl = backendApiUrl.replace(/\/api\/?$/, "");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -21,6 +22,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/:path*",
         destination: `${backendApiUrl}/:path*`,
+      },
+      {
+        source: "/uploads/:path*",
+        destination: `${backendAssetUrl}/uploads/:path*`,
       },
     ];
   },

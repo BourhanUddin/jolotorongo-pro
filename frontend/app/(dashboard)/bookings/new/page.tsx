@@ -12,14 +12,25 @@ import type { Houseboat, Room, Tour } from "@/types";
 
 const todayInput = () => {
   const d = new Date();
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  return formatInputDate(d);
 };
 
 const addOneDay = (date: string) => {
   if (!date) return "";
-  const d = new Date(`${date}T00:00:00`);
+  const [year, month, day] = date.split("-").map(Number);
+  const d = new Date(year, month - 1, day);
   d.setDate(d.getDate() + 1);
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+  return formatInputDate(d);
+};
+
+const formatInputDate = (date: Date) => {
+  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+};
+
+const formatTourDate = (date: string) => {
+  if (!date) return "";
+  const [year, month, day] = date.slice(0, 10).split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(year, month - 1, day));
 };
 
 export default function CreateTourPage() {
@@ -175,7 +186,9 @@ export default function CreateTourPage() {
               </label>
               <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-[#f1ebf7] text-[#32157c]"><CalendarDays size={23} /></span>
             </div>
-            <p className="mt-4 text-xs text-slate-500">Rooms selected here initialize as Available for {checkIn} to {checkOut}.</p>
+            <p className="mt-4 text-xs text-slate-500">
+              Rooms selected here initialize as Available for {formatTourDate(checkIn)} to {formatTourDate(checkOut)} (2D / 1N).
+            </p>
           </section>
 
           <section>
@@ -238,7 +251,7 @@ export default function CreateTourPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold">{tour.title}</p>
-                    <p className="text-xs text-slate-500">{tour.checkIn.slice(0, 10)} → {tour.checkOut.slice(0, 10)}</p>
+                    <p className="text-xs text-slate-500">{formatTourDate(tour.checkIn)} → {formatTourDate(tour.checkOut)}</p>
                     <p className="text-xs text-slate-500">{tour.roomIds.length} rooms assigned</p>
                   </div>
                   <button onClick={() => deleteTour.mutate(tour._id)} className="text-red-600"><Trash2 size={16} /></button>

@@ -1,9 +1,13 @@
 const User = require("../models/User");
 const Houseboat = require("../models/Houseboat");
 const JoinRequest = require("../models/JoinRequest");
+const Tour = require("../models/Tour");
+const Booking = require("../models/Booking");
 const { AppError, catchAsync } = require("../utils/appError");
 const { pushNotification } = require("../utils/notification");
 const { objectId, optionalString } = require("../utils/validation");
+const { getTwoDaySlot, activeOverlapFilter } = require("../utils/bookingSlot");
+const { expireStaleHolds } = require("../utils/holdExpiry");
 
 // ──────────────────────────────────────────────────────────────
 // SUPER ADMIN — Verify / Suspend Agents
@@ -92,8 +96,8 @@ const sendJoinRequest = catchAsync(async (req, res, next) => {
     return next(new AppError("এই হাউসবোটটি এখন সক্রিয় নয়।", 400));
   }
 
-  // Check if already in this houseboat
-  if (String(agent.joinedHouseboatId) === String(houseboatId)) {
+  const alreadyApproved = houseboat.approvedAgents.some((agentId) => String(agentId) === String(agent._id));
+  if (alreadyApproved || String(agent.joinedHouseboatId || "") === String(houseboatId)) {
     return next(new AppError("আপনি ইতিমধ্যে এই হাউসবোটে আছেন।", 400));
   }
 
@@ -101,6 +105,28 @@ const sendJoinRequest = catchAsync(async (req, res, next) => {
   const existing = await JoinRequest.findOne({ agentId: agent._id, houseboatId });
   if (existing && existing.status === "pending") {
     return next(new AppError("আপনার আবেদন ইতিমধ্যে পাঠানো হয়েছে। অনুমোদনের জন্য অপেক্ষা করুন।", 400));
+  }
+  if (existing && existing.status === "approved") {
+    return next(new AppError("আপনি ইতিমধ্যে এই হাউসবোটের অনুমোদিত এজেন্ট।", 400));
+  }
+  if (existing && existing.status === "rejected") {
+    existing.status = "pending";
+    existing.message = optionalString(message, 500);
+    existing.reviewedAt = null;
+    existing.reviewNote = null;
+    await existing.save();
+
+    await pushNotification(
+      houseboat.ownerId._id,
+      `🙋 ${agent.name} আপনার "${houseboat.name}" বোটে আবার যোগ দিতে চান।`,
+      "info"
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "যোগ দেওয়ার আবেদন আবার পাঠানো হয়েছে।",
+      data: { joinRequest: existing },
+    });
   }
 
   const joinRequest = await JoinRequest.create({
@@ -130,6 +156,63 @@ const getMyJoinRequests = catchAsync(async (req, res) => {
     .sort("-createdAt");
 
   res.status(200).json({ success: true, data: { requests } });
+});
+
+// GET /api/agents/available-rooms?checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD
+const getApprovedAvailableRooms = catchAsync(async (req, res, next) => {
+  const agent = req.user;
+  if (agent.status !== "active" || !agent.isApprovedByAdmin) {
+    return next(new AppError("শুধু ভেরিফাইড এজেন্ট availability দেখতে পারবেন।", 403));
+  }
+
+  const slot = getTwoDaySlot({ checkIn: req.query.checkIn, checkOut: req.query.checkOut });
+  if (!slot) return next(new AppError("চেক-ইন তারিখ দিন।", 400));
+  if (slot.error) return next(new AppError(slot.error, 400));
+
+  await expireStaleHolds();
+
+  const boats = await Houseboat.find({
+    isOperational: true,
+    approvedAgents: agent._id,
+  })
+    .populate("ownerId", "name phone")
+    .sort("name");
+
+  const boatIds = boats.map((boat) => boat._id);
+  const tours = await Tour.find({
+    houseboatId: { $in: boatIds },
+    status: "scheduled",
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
+  }).populate("roomIds");
+
+  const roomIds = tours.flatMap((tour) => tour.roomIds.map((room) => room._id));
+  const bookings = roomIds.length
+    ? await Booking.find({
+        roomId: { $in: roomIds },
+        ...activeOverlapFilter({ roomId: { $in: roomIds }, checkIn: slot.checkIn, checkOut: slot.checkOut }),
+      }).select("roomId status expiresAt")
+    : [];
+
+  const tourByBoatId = new Map(tours.map((tour) => [String(tour.houseboatId), tour]));
+  const groups = boats.map((boat) => {
+    const tour = tourByBoatId.get(String(boat._id));
+    const rooms = (tour?.roomIds || [])
+      .filter((room) => room.isActive && room.status !== "maintenance")
+      .filter((room) => !bookings.some((booking) => String(booking.roomId) === String(room._id)))
+      .map((room) => ({
+        ...room.toObject(),
+        availabilityState: "available",
+        availableOnDate: true,
+      }));
+
+    return { boat, tour: tour || null, rooms };
+  }).filter((group) => group.tour && group.rooms.length > 0);
+
+  res.status(200).json({
+    success: true,
+    data: { checkIn: slot.checkIn, checkOut: slot.checkOut, groups },
+  });
 });
 
 // ──────────────────────────────────────────────────────────────
@@ -163,34 +246,16 @@ const approveJoinRequest = catchAsync(async (req, res, next) => {
   if (String(houseboat.ownerId) !== String(req.user._id)) {
     return next(new AppError("আপনার এই অনুমতি নেই।", 403));
   }
-  if (
-    joinReq.agentId.joinedHouseboatId &&
-    String(joinReq.agentId.joinedHouseboatId) !== String(houseboat._id)
-  ) {
-    return next(new AppError("এই এজেন্ট ইতিমধ্যে অন্য হাউসবোটে অনুমোদিত।", 409));
-  }
-
   joinReq.status = "approved";
   joinReq.reviewedAt = new Date();
   await joinReq.save();
 
-  await JoinRequest.updateMany(
-    {
-      _id: { $ne: joinReq._id },
-      agentId: joinReq.agentId._id,
-      status: "pending",
-    },
-    {
-      status: "rejected",
-      reviewedAt: new Date(),
-      reviewNote: "এজেন্ট অন্য হাউসবোটে অনুমোদিত হয়েছে।",
-    }
-  );
-
-  // Link agent to houseboat
-  await User.findByIdAndUpdate(joinReq.agentId._id, {
-    joinedHouseboatId: houseboat._id,
-  });
+  // Keep legacy default boat only when empty; approvedAgents[] is network source of truth.
+  if (!joinReq.agentId.joinedHouseboatId) {
+    await User.findByIdAndUpdate(joinReq.agentId._id, {
+      joinedHouseboatId: houseboat._id,
+    });
+  }
   await Houseboat.findByIdAndUpdate(houseboat._id, {
     $addToSet: { approvedAgents: joinReq.agentId._id },
   });
@@ -238,6 +303,7 @@ module.exports = {
   listHouseboats,
   sendJoinRequest,
   getMyJoinRequests,
+  getApprovedAvailableRooms,
   getIncomingJoinRequests,
   approveJoinRequest,
   rejectJoinRequest,

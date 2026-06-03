@@ -23,9 +23,8 @@ const resolveHouseboat = async (user, requestedId, next) => {
     objectId(id, "হাউসবোট আইডি");
     const houseboat = await Houseboat.findById(id);
     if (!houseboat || !houseboat.isOperational) return next(new AppError("হাউসবোট পাওয়া যায়নি।", 404));
-    const joined = String(user.joinedHouseboatId || "") === String(houseboat._id);
     const approved = houseboat.approvedAgents.some((agentId) => String(agentId) === String(user._id));
-    if (!joined || !approved) return next(new AppError("এই হাউসবোটের availability দেখার অনুমতি নেই।", 403));
+    if (!approved) return next(new AppError("এই হাউসবোটের availability দেখার অনুমতি নেই।", 403));
     return houseboat;
   }
   const houseboats = await getManagedHouseboats(user);
@@ -58,7 +57,7 @@ const listTours = catchAsync(async (req, res, next) => {
   if (req.query.status) filter.status = enumValue(req.query.status, ["scheduled", "cancelled", "completed"], "ট্যুর স্ট্যাটাস");
   const tours = await Tour.find(filter)
     .populate("houseboatId", "name location")
-    .populate("roomIds", "roomNumber roomType acRoomPrice nonAcRoomPrice basePrice status")
+    .populate("roomIds", "roomNumber roomType climate acRoomPrice nonAcRoomPrice basePrice status images amenities services maxCapacity")
     .sort("-checkIn");
   res.status(200).json({ success: true, data: { tours } });
 });
@@ -133,13 +132,19 @@ const getTourMatrix = catchAsync(async (req, res, next) => {
   const tour = await Tour.findOne({
     houseboatId: houseboat._id,
     status: "scheduled",
-    checkIn: { $lt: slot.checkOut },
-    checkOut: { $gt: slot.checkIn },
+    checkIn: slot.checkIn,
+    checkOut: slot.checkOut,
   }).populate("roomIds");
 
-  const rooms = tour?.roomIds?.length
-    ? tour.roomIds
-    : await Room.find({ houseboatId: houseboat._id, isActive: true }).sort("roomNumber");
+  if (!tour) {
+    return res.status(200).json({
+      success: true,
+      message: "এই তারিখে কোনো সক্রিয় ট্যুর নেই।",
+      data: { houseboat, tour: null, checkIn: slot.checkIn, checkOut: slot.checkOut, rooms: [] },
+    });
+  }
+
+  const rooms = tour.roomIds || [];
   const roomIds = rooms.map((room) => room._id);
   const bookings = await Booking.find({
     houseboatId: houseboat._id,

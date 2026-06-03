@@ -112,6 +112,7 @@ Can:
 - request global verification
 - request to join tenant network
 - view availability after tenant approval
+- view date-filtered availability across all approved boats
 - submit booking requests after approval
 - mark own pending booking request as payment confirmed
 - track own commission
@@ -124,6 +125,8 @@ Cannot:
 - approve own booking
 - modify room/pricing
 - view owner finance except own commissions
+- view boat booking history
+- view other agents' booking requests or commissions
 
 ### CUSTOMER_EXTERNAL
 
@@ -176,6 +179,8 @@ Tour {
 
 Create Tour must not create bookings, holds, invoices, or ledger rows. It only initializes selected rooms as available for the Tour date unless a real booking later blocks them.
 
+Booking matrix is tour-gated. It returns rooms only when an active scheduled Tour matches the requested `checkIn/checkOut` exactly. No active Tour for the selected Booking date means no rooms are shown. There is no fallback to all vessel rooms.
+
 ### Slot-Based Availability
 
 Use:
@@ -222,6 +227,8 @@ confirmed
 Depending on current codebase, this may map to existing enum names.
 
 Current Agent rule: agents do not create `on_hold`. They create `BookingRequest` only. Room state changes to booked only when Admin/Manager approves the request and the backend creates a confirmed Booking.
+
+Agent approval is multi-boat. `Houseboat.approvedAgents[]` is the access source of truth. `User.joinedHouseboatId` is retained only as a backward-compatible default and must not block approved access to other boats.
 
 ---
 
@@ -277,6 +284,19 @@ States:
 - available
 - on_hold
 - booked
+
+## Agent Multi-Boat Availability API Shape
+
+```http
+GET /api/agents/available-rooms?checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD
+```
+
+Expected:
+- verified active agent only
+- returns only boats where `approvedAgents` contains current agent
+- returns only rooms assigned to active Tours matching the exact selected slot
+- returns available rooms only
+- does not return boat booking history
 
 ## Tour Matrix API Shape
 

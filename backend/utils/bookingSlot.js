@@ -1,15 +1,28 @@
 const ACTIVE_BOOKING_STATUSES = ["on_hold", "confirmed"];
 
 const startOfDay = (value) => {
-  const date = new Date(value);
+  let date;
+  if (value instanceof Date) {
+    date = new Date(value);
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    const inputDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (inputDate) {
+      date = new Date(Date.UTC(Number(inputDate[1]), Number(inputDate[2]) - 1, Number(inputDate[3])));
+    } else {
+      date = new Date(trimmed);
+    }
+  } else {
+    date = new Date(value);
+  }
   if (Number.isNaN(date.getTime())) return null;
-  date.setHours(0, 0, 0, 0);
+  date.setUTCHours(0, 0, 0, 0);
   return date;
 };
 
 const addDays = (date, days) => {
   const next = new Date(date);
-  next.setDate(next.getDate() + days);
+  next.setUTCDate(next.getUTCDate() + days);
   return next;
 };
 

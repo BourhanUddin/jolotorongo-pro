@@ -1,22 +1,45 @@
 'use client';
+import Image from 'next/image';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { agentApi, bookingRequestApi, houseboatApi, roomApi } from '@/lib/api';
+import { agentApi, bookingRequestApi, houseboatApi } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
 import { useState } from 'react';
 import { PageLoader, EmptyState, StatusBadge, Modal, Field, Spinner, InfoCard } from '@/components/ui';
 import toast from 'react-hot-toast';
-import type { Houseboat, User, JoinRequest, BookingRequest, Room } from '@/types';
-import { Check, X, CalendarCheck, Plus, UserRoundPlus } from 'lucide-react';
+import type { Houseboat, User, JoinRequest, BookingRequest, Room, Tour } from '@/types';
+import { Check, X, Plus, UserRoundPlus } from 'lucide-react';
+
+const fallbackRoomImage = 'https://images.unsplash.com/photo-1578683010236-d716f9a3f461?w=900&q=80';
 
 const addOneDay = (date: string) => {
   if (!date) return '';
-  const d = new Date(`${date}T00:00:00`);
+  const [year, month, day] = date.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
   d.setDate(d.getDate() + 1);
   return [
     d.getFullYear(),
     String(d.getMonth() + 1).padStart(2, '0'),
     String(d.getDate()).padStart(2, '0'),
   ].join('-');
+};
+
+const roomImage = (room: Room) => room.images?.[0] || fallbackRoomImage;
+
+const roomClimate = (room: Room): 'ac' | 'non_ac' | 'both' => {
+  if (room.climate) return room.climate;
+  if ((room.acRoomPrice || 0) > 0 && (room.nonAcRoomPrice || 0) > 0) return 'both';
+  return (room.nonAcRoomPrice || 0) > 0 ? 'non_ac' : 'ac';
+};
+
+const roomPrice = (room: Room, mode: 'ac' | 'non_ac') => {
+  const primary = mode === 'ac' ? room.acRoomPrice : room.nonAcRoomPrice;
+  return primary > 0 ? primary : room.basePrice;
+};
+
+type AvailableGroup = {
+  boat: Houseboat;
+  tour: Tour;
+  rooms: Room[];
 };
 
 const todayInput = () => {
@@ -265,15 +288,17 @@ function AgentHouseboatView() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
-  const [selected, setSelected] = useState<Houseboat | null>(null);
+  const [selectedBoat, setSelectedBoat] = useState<Houseboat | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [message, setMessage] = useState('');
-  const [checkIn, setCheckIn] = useState('');
-  const [checkOut, setCheckOut] = useState('');
-  const [roomId, setRoomId] = useState('');
+  const [checkIn, setCheckIn] = useState(todayInput());
+  const [checkOut, setCheckOut] = useState(addOneDay(todayInput()));
+  const [pricingMode, setPricingMode] = useState<'ac' | 'non_ac'>('ac');
   const [guestCount, setGuestCount] = useState('1');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [joinRequestBoatId, setJoinRequestBoatId] = useState('');
   const isVerified = user?.isApprovedByAdmin && user?.status === 'active';
 
   const { data, isLoading } = useQuery({ queryKey: ['houseboats'], queryFn: () => agentApi.listHouseboats() });
@@ -283,38 +308,41 @@ function AgentHouseboatView() {
   const houseboats: Houseboat[] = data?.data?.data?.houseboats || [];
   const myRequests: JoinRequest[] = myReqData?.data?.data?.requests || [];
   const myBookingRequests: BookingRequest[] = myBookingReqData?.data?.data?.requests || [];
-  const approvedJoin = myRequests.find((r) => r.status === 'approved');
-  const approvedJoinBoatId = approvedJoin
-    ? typeof approvedJoin.houseboatId === 'object' ? approvedJoin.houseboatId._id : approvedJoin.houseboatId
-    : null;
-  const joinedId = (typeof user?.joinedHouseboatId === 'object' ? user?.joinedHouseboatId?._id : user?.joinedHouseboatId) || approvedJoinBoatId;
-  const { data: availabilityData } = useQuery({
-    queryKey: ['boat-room-availability', selected?._id, checkIn, checkOut],
-    queryFn: () => roomApi.availability(selected!._id, checkIn, checkOut),
-    enabled: !!selected?._id && selected?._id === joinedId && !!checkIn && !!checkOut && isVerified,
+  const approvedBoatIds = new Set(
+    myRequests
+      .filter((r) => r.status === 'approved')
+      .map((r) => typeof r.houseboatId === 'object' ? r.houseboatId._id : r.houseboatId)
+  );
+  const hasApprovedBoats = approvedBoatIds.size > 0;
+  const { data: availabilityData, isLoading: availabilityLoading } = useQuery({
+    queryKey: ['agent-approved-available-rooms', checkIn, checkOut],
+    queryFn: () => agentApi.availableRooms({ checkIn, checkOut }),
+    enabled: !!checkIn && !!checkOut && isVerified && hasApprovedBoats,
   });
-  const rooms: Room[] = availabilityData?.data?.data?.rooms || [];
-  const availableRooms = rooms.filter((room) => room.availabilityState === 'available');
+  const availabilityGroups: AvailableGroup[] = availabilityData?.data?.data?.groups || [];
 
   const joinRequestMutation = useMutation({
     mutationFn: (houseboatId: string) => agentApi.sendJoinRequest({ houseboatId }),
+    onMutate: (houseboatId) => setJoinRequestBoatId(houseboatId),
     onSuccess: () => {
       toast.success('যোগ দেওয়ার আবেদন পাঠানো হয়েছে');
       qc.invalidateQueries({ queryKey: ['my-join-requests'] });
     },
     onError: (err: unknown) => toast.error((err as { response?: { data?: { message?: string } } })?.response?.data?.message || 'ত্রুটি'),
+    onSettled: () => setJoinRequestBoatId(''),
   });
 
   const bookingRequestMutation = useMutation({
     mutationFn: () => bookingRequestApi.create({
-      boatId: selected!._id,
-      roomId,
+      boatId: selectedBoat!._id,
+      roomId: selectedRoom!._id,
       checkIn,
       checkOut,
       guestCount: Number(guestCount) || 1,
       customerName,
       customerPhone,
       customerAddress,
+      pricingMode,
       note: message,
     }),
     onSuccess: () => {
@@ -322,7 +350,8 @@ function AgentHouseboatView() {
       qc.invalidateQueries({ queryKey: ['my-booking-requests'] });
       setShowModal(false);
       setMessage('');
-      setRoomId('');
+      setSelectedBoat(null);
+      setSelectedRoom(null);
       setCustomerName('');
       setCustomerPhone('');
       setCustomerAddress('');
@@ -336,16 +365,11 @@ function AgentHouseboatView() {
     const rid = typeof r.houseboatId === 'object' ? r.houseboatId._id : r.houseboatId;
     return rid === hbId;
   });
-  const getBookingStatus = (hbId: string) => myBookingRequests.find(r => {
-    const bid = typeof r.boatId === 'object' ? r.boatId._id : r.boatId;
-    return bid === hbId && r.status === 'pending';
-  });
 
-  const openBookingRequest = (houseboat: Houseboat) => {
-    setSelected(houseboat);
-    setCheckIn('');
-    setCheckOut('');
-    setRoomId('');
+  const openBookingRequest = (houseboat: Houseboat, room: Room) => {
+    setSelectedBoat(houseboat);
+    setSelectedRoom(room);
+    setPricingMode(roomClimate(room) === 'non_ac' ? 'non_ac' : 'ac');
     setGuestCount('1');
     setCustomerName('');
     setCustomerPhone('');
@@ -364,22 +388,15 @@ function AgentHouseboatView() {
         </div>
       )}
 
-      {joinedId && (
-        <div className="mb-4">
-          <InfoCard type="info" message="আপনি ইতিমধ্যে একটি হাউসবোটে যুক্ত আছেন।" />
-        </div>
-      )}
-
       {houseboats.length === 0 ? (
         <EmptyState icon="🛥️" title="কোনো হাউসবোট নেই" desc="সক্রিয় হাউসবোট পাওয়া যায়নি" />
       ) : (
         <div className="flex flex-col gap-3">
           {houseboats.map((h) => {
             const req = getStatus(h._id);
-            const bookingReq = getBookingStatus(h._id);
             const owner = typeof h.ownerId === 'object' ? h.ownerId as User : null;
-            const isJoined = joinedId === h._id;
-            const canRequestJoin = isVerified && !joinedId && (!req || req.status === 'rejected');
+            const isApproved = approvedBoatIds.has(h._id);
+            const canRequestJoin = isVerified && !isApproved && (!req || req.status === 'rejected');
             return (
               <div key={h._id} className="card">
                 <div className="flex justify-between items-start mb-2">
@@ -388,29 +405,21 @@ function AgentHouseboatView() {
                     <p className="text-xs text-slate-500">📍 {h.location}</p>
                     {owner && <p className="text-xs text-slate-500">👤 {owner.name} · {owner.phone}</p>}
                   </div>
-                  {isJoined ? (
-                    <span className="badge badge-green">যুক্ত আছি</span>
+                  {isApproved ? (
+                    <span className="badge badge-green">অনুমোদিত</span>
                   ) : req ? (
                     <StatusBadge status={req.status} />
                   ) : null}
                 </div>
-                {isVerified && isJoined && (
-                  <>
-                    {bookingReq && <p className="text-xs text-amber-600 mb-2">এই বোটে একটি বুকিং রিকোয়েস্ট পেন্ডিং আছে।</p>}
-                    <button onClick={() => openBookingRequest(h)} className="btn btn-outline btn-full text-sm text-sky-600 border-sky-200 mt-2">
-                      <CalendarCheck size={14} /> রুম দেখে বুকিং রিকোয়েস্ট পাঠান
-                    </button>
-                  </>
-                )}
                 {canRequestJoin && (
-                  <button onClick={() => joinRequestMutation.mutate(h._id)} disabled={joinRequestMutation.isPending} className="btn btn-primary btn-full text-sm mt-2">
-                    {joinRequestMutation.isPending ? <Spinner size="sm" /> : 'এজেন্ট হতে আবেদন পাঠান'}
+                  <button onClick={() => joinRequestMutation.mutate(h._id)} disabled={joinRequestBoatId === h._id} className="btn btn-primary btn-full text-sm mt-2">
+                    {joinRequestBoatId === h._id ? <Spinner size="sm" /> : 'এজেন্ট হতে আবেদন পাঠান'}
                   </button>
                 )}
-                {isVerified && !isJoined && req?.status === 'pending' && (
+                {isVerified && !isApproved && req?.status === 'pending' && (
                   <p className="text-xs text-amber-600 mt-2">মালিকের অনুমোদনের জন্য অপেক্ষা করছে।</p>
                 )}
-                {isVerified && joinedId && !isJoined && (
+                {isVerified && !isApproved && req?.status !== 'pending' && (
                   <p className="text-xs text-slate-500 mt-2">বুকিং রিকোয়েস্ট পাঠাতে এই বোটের অনুমোদিত এজেন্ট হতে হবে।</p>
                 )}
               </div>
@@ -419,18 +428,93 @@ function AgentHouseboatView() {
         </div>
       )}
 
-      {/* Booking request modal */}
-      <Modal open={showModal} onClose={() => setShowModal(false)} title={`${selected?.name || ''} বুকিং রিকোয়েস্ট`}>
-        <div className="flex flex-col gap-4">
-          <InfoCard type="info" message="২ দিন ১ রাতের ট্রিপ তারিখ বেছে রুম সিলেক্ট করুন। মালিক অনুমোদন করলে বুকিং কনফার্ম হবে।" />
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="চেক-ইন" required>
-              <input type="date" className="input" min={todayInput()} value={checkIn} onChange={e => { setCheckIn(e.target.value); setCheckOut(addOneDay(e.target.value)); setRoomId(''); }} />
-            </Field>
-            <Field label="চেক-আউট">
-              <input type="date" className="input" value={checkOut} readOnly />
-            </Field>
+      {isVerified && hasApprovedBoats && (
+        <section className="mt-6">
+          <div className="card">
+            <h2 className="font-bold text-slate-800 mb-3">উপলব্ধ রুম খুঁজুন</h2>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="চেক-ইন" required>
+                <input type="date" className="input" min={todayInput()} value={checkIn} onChange={e => { setCheckIn(e.target.value); setCheckOut(addOneDay(e.target.value)); }} />
+              </Field>
+              <Field label="চেক-আউট">
+                <input type="date" className="input" value={checkOut} readOnly />
+              </Field>
+            </div>
           </div>
+
+          <div className="mt-4 flex flex-col gap-4">
+            {availabilityLoading ? (
+              <div className="card flex items-center gap-2 text-sm text-slate-500"><Spinner size="sm" /> রুম খোঁজা হচ্ছে...</div>
+            ) : availabilityGroups.length === 0 ? (
+              <EmptyState icon="🛏️" title="কোনো উপলব্ধ রুম নেই" desc="এই তারিখে অনুমোদিত বোটে সক্রিয় ট্যুর/রুম পাওয়া যায়নি" />
+            ) : availabilityGroups.map((group) => (
+              <div key={group.boat._id} className="card">
+                <div className="mb-3">
+                  <p className="font-bold text-slate-800">{group.boat.name}</p>
+                  <p className="text-xs text-slate-500">{group.tour.title} · {checkIn} → {checkOut}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {group.rooms.map((room) => (
+                    <button key={room._id} onClick={() => openBookingRequest(group.boat, room)} className="overflow-hidden rounded-lg border border-emerald-200 bg-white text-left shadow-sm">
+                      <span className="relative block h-28">
+                        <Image src={roomImage(room)} alt={`Room ${room.roomNumber}`} fill sizes="(min-width: 640px) 45vw, 90vw" className="object-cover" />
+                        <span className="absolute left-3 top-3 rounded-full bg-emerald-600 px-2 py-1 text-[11px] font-bold text-white">উপলব্ধ</span>
+                      </span>
+                      <span className="block p-3">
+                        <span className="block text-sm font-bold text-slate-800">রুম {room.roomNumber}</span>
+                        <span className="mt-1 block text-xs capitalize text-slate-500">{room.roomType} · {room.maxCapacity} জন</span>
+                        <span className="mt-2 block text-sm font-bold text-slate-800">৳{roomPrice(room, roomClimate(room) === 'non_ac' ? 'non_ac' : 'ac').toLocaleString()}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {isVerified && (
+        <section className="mt-6">
+          <h2 className="section-title">আমার বুকিং রিকোয়েস্ট ও কমিশন</h2>
+          {myBookingRequests.length === 0 ? (
+            <div className="card text-sm text-slate-500">এখনো কোনো বুকিং রিকোয়েস্ট নেই।</div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {myBookingRequests.map((request) => {
+                const boat = typeof request.boatId === 'object' ? request.boatId as Houseboat : null;
+                const room = typeof request.roomId === 'object' ? request.roomId as Room : null;
+                return (
+                  <article key={request._id} className="card">
+                    <div className="flex justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-slate-800">{request.customerName || 'গ্রাহক'}</p>
+                        <p className="text-xs text-slate-500">{boat?.name || 'বোট'} · রুম {room?.roomNumber || '—'}</p>
+                        <p className="text-xs text-slate-500">{request.tripDates.checkIn.slice(0, 10)} → {request.tripDates.checkOut.slice(0, 10)}</p>
+                        <p className="mt-1 text-xs font-semibold text-emerald-700">কমিশন: ৳{(request.agentCommission || 0).toLocaleString()}</p>
+                      </div>
+                      <StatusBadge status={request.status} />
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Booking request modal */}
+      <Modal open={showModal} onClose={() => setShowModal(false)} title={`${selectedBoat?.name || ''} বুকিং রিকোয়েস্ট`}>
+        <div className="flex flex-col gap-4">
+          <InfoCard type="info" message="আপনার রিকোয়েস্ট মালিক অনুমোদন করলে বুকিং কনফার্ম হবে।" />
+          {selectedRoom && (
+            <div className="overflow-hidden rounded-lg border border-slate-100 bg-white">
+              <div className="relative h-28">
+                <Image src={roomImage(selectedRoom)} alt={`Room ${selectedRoom.roomNumber}`} fill sizes="360px" className="object-cover" />
+              </div>
+              <p className="p-3 text-sm font-bold text-slate-800">রুম {selectedRoom.roomNumber} · {checkIn} → {checkOut}</p>
+            </div>
+          )}
           <Field label="অতিথি সংখ্যা">
             <input type="number" className="input" min="1" value={guestCount} onChange={e => setGuestCount(e.target.value)} />
           </Field>
@@ -443,34 +527,18 @@ function AgentHouseboatView() {
           <Field label="গ্রাহকের ঠিকানা">
             <input className="input" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="ঐচ্ছিক" />
           </Field>
-          {checkIn && (
-            <Field label="উপলব্ধ রুম" required>
-              <div className="flex flex-col gap-2">
-                {availableRooms.length === 0 ? (
-                  <p className="text-sm text-slate-500">এই তারিখে কোনো রুম পাওয়া যায়নি</p>
-                ) : availableRooms.map(room => (
-                    <button
-                      type="button"
-                      key={room._id}
-                      onClick={() => setRoomId(room._id)}
-                      className={`rounded-lg border p-3 text-left ${roomId === room._id ? 'border-sky-500 bg-sky-50' : 'border-emerald-200 bg-emerald-50'}`}
-                    >
-                      <div className="flex justify-between gap-2">
-                        <span className="font-semibold text-sm">রুম {room.roomNumber} ({room.roomType})</span>
-                        <span className="font-bold text-sm">৳{room.basePrice.toLocaleString()}</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1">{room.maxCapacity} জন · উপলব্ধ</p>
-                    </button>
-                ))}
-              </div>
-            </Field>
+          {selectedRoom && roomClimate(selectedRoom) === 'both' && (
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setPricingMode('ac')} className={`rounded-lg border px-3 py-2 text-sm font-bold ${pricingMode === 'ac' ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200'}`}>AC</button>
+              <button onClick={() => setPricingMode('non_ac')} className={`rounded-lg border px-3 py-2 text-sm font-bold ${pricingMode === 'non_ac' ? 'border-sky-500 bg-sky-50 text-sky-700' : 'border-slate-200'}`}>Non-AC</button>
+            </div>
           )}
           <Field label="বার্তা (ঐচ্ছিক)">
             <textarea className="input" rows={3} placeholder="গ্রাহকের চাহিদা বা নোট..." value={message} onChange={e => setMessage(e.target.value)} />
           </Field>
           <div className="flex gap-2">
             <button onClick={() => setShowModal(false)} className="btn btn-outline flex-1">বাতিল</button>
-            <button onClick={() => bookingRequestMutation.mutate()} disabled={bookingRequestMutation.isPending || !roomId || !checkIn || !customerName.trim() || !customerPhone.trim()} className="btn btn-primary flex-1">
+            <button onClick={() => bookingRequestMutation.mutate()} disabled={bookingRequestMutation.isPending || !selectedRoom || !checkIn || !customerName.trim() || !customerPhone.trim()} className="btn btn-primary flex-1">
               {bookingRequestMutation.isPending ? <Spinner size="sm" /> : 'রিকোয়েস্ট পাঠান'}
             </button>
           </div>

@@ -27,6 +27,12 @@ const bookingRequestSchema = new mongoose.Schema(
       checkOut: { type: Date, required: true },
     },
     guestCount: { type: Number, default: 1 },
+    pricingMode: {
+      type: String,
+      enum: ["ac", "non_ac"],
+      default: "ac",
+    },
+    basePrice: { type: Number, default: 0 },
     totalPrice: { type: Number, required: true },
     agentCommission: { type: Number, default: 0 },
     paymentConfirmedByAgent: { type: Boolean, default: false },
